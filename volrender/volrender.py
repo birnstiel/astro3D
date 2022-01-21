@@ -131,9 +131,9 @@ class Renderer(object):
                 plt.draw()
 
             self.render()
-            self.im.set_data(255 * self.image)
 
             if self.plot:
+                self.im.set_data(255 * self.image)
                 self.ax.set_title('ready!')
                 plt.draw()
 
