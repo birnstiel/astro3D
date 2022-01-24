@@ -58,6 +58,11 @@ if __name__ == "__main__":
                 'numpy'],
             python_requires='>=3.6',
             zip_safe=False,
+            entry_points={
+                'console_scripts': [
+                    'volrender=volrender.volrender:main',
+                ],
+            }
         )
 
     try:

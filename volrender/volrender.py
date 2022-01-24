@@ -1,8 +1,16 @@
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 from scipy.interpolate import RegularGridInterpolator
 from matplotlib.widgets import Slider
+import warnings
+try:
+    from volrender import fmodule
+    fmodule_available = True
+except Exception:
+    warnings.warn('Fortran routine unavailable, code will be slightly slower')
+    fmodule_available = False
 
 
 class Renderer(object):
@@ -28,9 +36,10 @@ class Renderer(object):
         self.y = y
         self.z = z
         self.data = data
+        self.data_obs = data.copy()
 
-        self.phi = None
-        self.theta = None
+        self.phi = 0.0
+        self.theta = 0.0
 
         self.N = N
 
@@ -62,14 +71,13 @@ class Renderer(object):
             self.slider_t_ax = self.f.add_axes([pos.x0, pos.y0 - 2 * pos.height / 20.0, pos.width, pos.height / 20.0])
 
             self.slider_p = Slider(self.slider_p_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
-            self.slider_t = Slider(self.slider_t_ax, 'elevation', 0.0, 180.0, valinit=45.0, valfmt='%.1f')
+            self.slider_t = Slider(self.slider_t_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
 
             self.slider_p.on_changed(self.slider_update)
             self.slider_t.on_changed(self.slider_update)
 
-            self.slider_update(None)
+            self.update(self.slider_t.val, self.slider_p.val, do_update=True)
 
-            plt.ion()
             plt.show()
 
     def slider_update(self, event):
@@ -96,7 +104,7 @@ class Renderer(object):
         # Interpolate onto Camera Grid
         self.data_obs = self.f_interp(qi).reshape((self.N, self.N, self.N))
 
-    def render(self):
+    def render_py(self):
         """Do Volume Rendering"""
         self.image[...] = 0.0
         for dataslice in self.data_obs:
@@ -108,18 +116,30 @@ class Renderer(object):
         # np.clip(self.image, 0.0, 1.0, out=self.image)
         self.image = np.clip(self.image, 0.0, 1.0)
 
-    def update(self, theta, phi):
+    def render_f(self):
+        self.image = fmodule.render(self.data_obs,
+                                    self.transferfunction.x0,
+                                    self.transferfunction.A,
+                                    self.transferfunction.sigma,
+                                    self.transferfunction.colors)
 
-        do_update = False
+    def render(self):
+        if fmodule_available:
+            self.render_f()
+        else:
+            self.render_py()
+
+    def update(self, theta, phi, do_update=False):
 
         # if the view changed, recalculate data
         if theta != self.theta or phi != self.phi:
             self.phi = phi
             self.theta = theta
             if self.plot:
-                self.ax.set_title('interpolating ...')
-                plt.draw()
+                print('interpolating ... ', flush=True, end='')
             self.rotate_data(phi, theta)
+            if self.plot:
+                print('Done!', flush=True)
             do_update = True
 
         # if other things change, manage them here and set do_update to True
@@ -127,15 +147,14 @@ class Renderer(object):
         if do_update:
 
             if self.plot:
-                self.ax.set_title('rendering ...')
-                plt.draw()
-
+                print('rendering ... ', flush=True, end='')
             self.render()
-
             if self.plot:
-                self.im.set_data(255 * self.image)
-                self.ax.set_title('ready!')
-                plt.draw()
+                print('Done!', flush=True)
+
+        if self.plot:
+            self.im.set_data(255 * self.image)
+            plt.draw()
 
 
 class TransferFunction(object):
@@ -198,16 +217,28 @@ class TransferFunction(object):
         return vals.sum(-2).T
 
 
-if __name__ == '__main__':
+def main():
+    RTHF = argparse.RawTextHelpFormatter
+    PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
+    PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default=None)
+    PARSER.add_argument('filename', help='which .npz file to read', type=str)
+    ARGS = PARSER.parse_args()
 
     print('reading data ... ', end='')
-    with np.load('pluto_data.npz') as f:
-        data = f['rho']
+    if ARGS.field is None:
+        data = np.load(ARGS.filename)
+    else:
+        with np.load(ARGS.filename) as f:
+            data = f[ARGS.field]
     print('Done!')
 
     vmax = data.max()
     datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data)
 
-    render = Renderer(datacube)
+    Renderer(datacube)
+    plt.show()
 
+
+if __name__ == '__main__':
+    main()
     plt.show()

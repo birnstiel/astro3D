@@ -1,6 +1,10 @@
 __version__ = '0.0.1'
-__all__ = ['fct']
 
-from _fortran import fmodule
+from ._fortran import fmodule
 
-__all__ = ['fmodule']
+from .volrender import Renderer
+
+__all__ = [
+    'fmodule',
+    'Renderer',
+]

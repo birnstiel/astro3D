@@ -2,4 +2,9 @@
 *.mp4
 *.pdf
 *.png
+*.pyc
+*.mod
+*.so
 frames/
+*.egg-info/
+build/
