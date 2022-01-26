@@ -233,7 +233,7 @@ def main():
     print('Done!')
 
     vmax = data.max()
-    datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data)
+    datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
 
     Renderer(datacube)
     plt.show()
