@@ -61,6 +61,7 @@ if __name__ == "__main__":
             entry_points={
                 'console_scripts': [
                     'volrender=volrender.volrender:main',
+                    'render_movie=volrender.render_helper:main',
                 ],
             }
         )

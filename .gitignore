@@ -8,3 +8,4 @@
 frames/
 *.egg-info/
 build/
+*.jpg
