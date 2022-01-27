@@ -9,3 +9,4 @@ frames/
 *.egg-info/
 build/
 *.jpg
+/data/
