@@ -1,7 +1,9 @@
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
+from matplotlib import cm
+from matplotlib.colors import ListedColormap
 from scipy.interpolate import RegularGridInterpolator
 from matplotlib.widgets import Slider
 import warnings
@@ -15,7 +17,7 @@ except Exception:
 
 class Renderer(object):
 
-    def __init__(self, data, x=None, y=None, z=None, N=300, plot=False):
+    def __init__(self, data, x=None, y=None, z=None, N=300, interactive=False, tf=None):
 
         if x is None:
             nx = data.shape[0]
@@ -36,23 +38,26 @@ class Renderer(object):
         self.y = y
         self.z = z
         self.data = data
-        self.data_obs = data.copy()
+        self.data_obs = np.zeros([N, N, N])
 
         self.phi = 0.0
         self.theta = 0.0
 
-        self.N = N
-
         # set the observer grid onto which the data will be transformed
-        c = np.linspace(-N / 2, N / 2, N)
-        self.xo, self.yo, self.zo = np.meshgrid(c, c, c)
+        self._N = N
+        nmax = max(nx, ny, nz)
+        cx = np.linspace(-nmax / 2, nmax / 2, N)
+        cy = np.linspace(-nmax / 2, nmax / 2, N)
+        cz = np.linspace(-nmax / 2, nmax / 2, N)
+        self.xo, self.yo, self.zo = np.meshgrid(cx, cy, cz)
 
         # set up the transfer function
 
-        self.transferfunction = TransferFunction()
+        if tf is None:
+            tf = TransferFunction()
+        self.transferfunction = tf
 
         # set up the interpolation function
-
         self.f_interp = RegularGridInterpolator((x, y, z), data, bounds_error=False, fill_value=0.0)
 
         # the array holding the rendered image
@@ -60,8 +65,8 @@ class Renderer(object):
         self.image = np.ones((N, N, 3))
 
         # if a plot should be done
-        self.plot = plot
-        if plot:
+        self.interactive = interactive
+        if interactive:
             self.f, self.ax = plt.subplots(figsize=(6, 6))
             self.ax.set_aspect('equal')
             self.im = self.ax.imshow(self.image, origin='lower')
@@ -84,60 +89,39 @@ class Renderer(object):
         self.update(self.slider_t.val, self.slider_p.val)
         plt.draw()
 
-    def rotate_data(self, phi, theta, return_data=False):
-        """calculate the rotated data on the observer grid
+    def render(self, phi=None, theta=None, update=True):
+        """render the data from azimuth `phi`, elevation `theta`. Store in self.image
 
         Parameters
         ----------
         phi : float
-            azimuthal angle of the view in degree
+            azimuthal angle in degree
         theta : float
-            polar angle of the view in degree
-
-        return_data : bool
-            default: False, if True, then do not update the object, but return
-            the rotated data. This may be useful for parallel processing.
+            polar angle in degree
+        update : bool
+            if false, only re-render, no need to interpolate, default=True
         """
-        phi, theta = np.deg2rad([phi, theta])
+        if update:
+            if phi is None:
+                phi = self.phi
+            if theta is None:
+                theta = self.theta
 
-        qxR = self.xo * np.cos(phi) - self.yo * np.sin(phi) * np.cos(theta) + self.zo * np.sin(phi) * np.sin(theta)
-        qyR = self.xo * np.sin(phi) + self.yo * np.cos(phi) * np.cos(theta) - self.zo * np.sin(theta) * np.cos(phi)
-        qzR = self.yo * np.sin(theta) + self.zo * np.cos(theta)
-        qi = np.array([qxR.ravel(), qyR.ravel(), qzR.ravel()]).T
+            phi, theta = np.deg2rad([phi, theta])
 
-        # Interpolate onto Camera Grid
-        if return_data:
-            return self.f_interp(qi).reshape((self.N, self.N, self.N))
-        else:
-            self.data_obs = self.f_interp(qi).reshape((self.N, self.N, self.N))
+            qxR = self.xo * np.cos(phi) - self.yo * np.sin(phi) * np.cos(theta) + self.zo * np.sin(phi) * np.sin(theta)
+            qyR = self.xo * np.sin(phi) + self.yo * np.cos(phi) * np.cos(theta) - self.zo * np.sin(theta) * np.cos(phi)
+            qzR = self.yo * np.sin(theta) + self.zo * np.cos(theta)
+            qi = np.array([qxR.ravel(), qyR.ravel(), qzR.ravel()]).T
 
-    @staticmethod
-    def render_py(data, transferfunction):
-        """Do Volume Rendering"""
-        image = np.zeros(data.shape[1:])
+            # Interpolate onto Camera Grid
+            self.data_obs = self.f_interp(qi).reshape((self._N, self._N, self._N))
 
-        for dataslice in data:
-            r, g, b, a = transferfunction(dataslice)
-            image[:, :, 0] = a * r + (1 - a) * image[:, :, 0]
-            image[:, :, 1] = a * g + (1 - a) * image[:, :, 1]
-            image[:, :, 2] = a * b + (1 - a) * image[:, :, 2]
-
-        # np.clip(self.image, 0.0, 1.0, out=self.image)
-        return np.clip(image, 0.0, 1.0)
-
-    @staticmethod
-    def render_f(data, transferfunction):
-        return fmodule.render(data,
-                              transferfunction.x0,
-                              transferfunction.A,
-                              transferfunction.sigma,
-                              transferfunction.colors)
-
-    def render(self):
-        if fmodule_available:
-            self.image = self.render_f(self.data_obs, self.transferfunction)
-        else:
-            self.image = self.render_py(self.data_obs, self.transferfunction)
+        self.image = fmodule.render(self.data_obs,
+                                    self.transferfunction.x0,
+                                    self.transferfunction.A,
+                                    self.transferfunction.sigma,
+                                    self.transferfunction.colors)
 
     def update(self, theta, phi, do_update=False):
 
@@ -145,26 +129,98 @@ class Renderer(object):
         if theta != self.theta or phi != self.phi:
             self.phi = phi
             self.theta = theta
-            if self.plot:
-                print('interpolating ... ', flush=True, end='')
-            self.rotate_data(phi, theta)
-            if self.plot:
-                print('Done!', flush=True)
             do_update = True
 
         # if other things change, manage them here and set do_update to True
 
-        if do_update:
+        self.render(phi, theta, update=do_update)
 
-            if self.plot:
-                print('rendering ... ', flush=True, end='')
-            self.render()
-            if self.plot:
-                print('Done!', flush=True)
-
-        if self.plot:
-            self.im.set_data(255 * self.image)
+        if self.interactive:
+            self.im.set_data(Normalize()(self.image))
             plt.draw()
+
+    def plot(self, norm=None, diagnostics=False, L=None):
+        """Make a plot of the rendered image
+
+        Parameters
+        ----------
+        norm : norm, optional
+             that was used to scale the data, assuming linear 0...1 if none is given, by default None
+        diagnostics : bool, optional
+            if true, plot also diagnostics of the transfer function and image, by default False
+        L : float, optional
+            box length to rescale things, by default None
+
+        Returns
+        -------
+        figure, axes
+        """
+
+        if norm is None:
+            print('no norm given assuming linear from 0 to 1')
+            norm = Normalize()
+
+        if L is None:
+            L = self.data.shape[0]
+
+        # make the plot
+        if diagnostics:
+            f, axs = plt.subplots(1, 2, figsize=(10, 4), dpi=200, gridspec_kw={'wspace': 0.3})
+            ax = axs[0]
+        else:
+            f, ax = plt.subplots(figsize=(4, 4), dpi=200)
+
+        ax.imshow(Normalize()(self.image), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True)
+
+        ax.set_xlabel('x [au]')
+        ax.set_ylabel('y [au]')
+
+        # make axis for the colorbar
+
+        pos = ax.get_position()
+        cax = f.add_axes([pos.x1 + pos.height / 20 / 5, pos.y0, pos.height / 20, pos.height])
+
+        # make a color map based on the transfer function
+
+        x = np.linspace(0, 1, 200)
+        tf_image = self.transferfunction(x)
+        tf_image = tf_image[:3, :].T
+        tf_image = Normalize()(tf_image)
+        col = ListedColormap(tf_image)
+
+        # add a colorbar just based on the norm and colormap
+
+        cb = f.colorbar(cm.ScalarMappable(norm=norm, cmap=col), cax=cax)
+        cb.set_label('$\\rho$ [g cm$^{-3}$]')
+
+        # make the plot
+
+        # make the transfer function plot
+        if diagnostics:
+            ax = axs[1]
+            ax.set_facecolor('k')
+
+            counts, edges = np.histogram(self.data.ravel(), 200, density=True)
+            centers = 0.5 * (edges[1:] + edges[:-1])
+
+            rgba = self.transferfunction(centers)
+
+            ax.plot(centers, counts, '0.5', ds='steps')
+
+            tf_image = (rgba[:3, :, None] * np.ones(100)[None, None, :]).T
+            tf_image = Normalize()(tf_image)
+
+            ymax = counts.max()
+            ymin = ymax * 1e-10
+
+            ax.imshow(tf_image, extent=[*centers[[0, -1]], ymin, ymax],
+                      interpolation='none', interpolation_stage='data', resample=True)
+            ax.fill_between(centers, rgba[-1], ymax, fc='white', ec='k', zorder=0)
+            ax.set_ylim(ymin, ymax)
+            ax.set_aspect('auto')
+            ax.set_yscale('log')
+
+            return f, ax
 
 
 class TransferFunction(object):
@@ -245,7 +301,7 @@ def main():
     vmax = data.max()
     datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
 
-    Renderer(datacube, plot=True)
+    Renderer(datacube, interactive=True)
     plt.show()
 
 
