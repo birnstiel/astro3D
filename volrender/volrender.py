@@ -15,7 +15,7 @@ except Exception:
 
 class Renderer(object):
 
-    def __init__(self, data, x=None, y=None, z=None, N=300, plot=True):
+    def __init__(self, data, x=None, y=None, z=None, N=300, plot=False):
 
         if x is None:
             nx = data.shape[0]
@@ -84,7 +84,7 @@ class Renderer(object):
         self.update(self.slider_t.val, self.slider_p.val)
         plt.draw()
 
-    def rotate_data(self, phi, theta):
+    def rotate_data(self, phi, theta, return_data=False):
         """calculate the rotated data on the observer grid
 
         Parameters
@@ -93,6 +93,10 @@ class Renderer(object):
             azimuthal angle of the view in degree
         theta : float
             polar angle of the view in degree
+
+        return_data : bool
+            default: False, if True, then do not update the object, but return
+            the rotated data. This may be useful for parallel processing.
         """
         phi, theta = np.deg2rad([phi, theta])
 
@@ -102,32 +106,38 @@ class Renderer(object):
         qi = np.array([qxR.ravel(), qyR.ravel(), qzR.ravel()]).T
 
         # Interpolate onto Camera Grid
-        self.data_obs = self.f_interp(qi).reshape((self.N, self.N, self.N))
+        if return_data:
+            return self.f_interp(qi).reshape((self.N, self.N, self.N))
+        else:
+            self.data_obs = self.f_interp(qi).reshape((self.N, self.N, self.N))
 
-    def render_py(self):
+    @staticmethod
+    def render_py(data, transferfunction):
         """Do Volume Rendering"""
-        self.image[...] = 0.0
-        for dataslice in self.data_obs:
-            r, g, b, a = self.transferfunction(dataslice)
-            self.image[:, :, 0] = a * r + (1 - a) * self.image[:, :, 0]
-            self.image[:, :, 1] = a * g + (1 - a) * self.image[:, :, 1]
-            self.image[:, :, 2] = a * b + (1 - a) * self.image[:, :, 2]
+        image = np.zeros(data.shape[1:])
+
+        for dataslice in data:
+            r, g, b, a = transferfunction(dataslice)
+            image[:, :, 0] = a * r + (1 - a) * image[:, :, 0]
+            image[:, :, 1] = a * g + (1 - a) * image[:, :, 1]
+            image[:, :, 2] = a * b + (1 - a) * image[:, :, 2]
 
         # np.clip(self.image, 0.0, 1.0, out=self.image)
-        self.image = np.clip(self.image, 0.0, 1.0)
+        return np.clip(image, 0.0, 1.0)
 
-    def render_f(self):
-        self.image = fmodule.render(self.data_obs,
-                                    self.transferfunction.x0,
-                                    self.transferfunction.A,
-                                    self.transferfunction.sigma,
-                                    self.transferfunction.colors)
+    @staticmethod
+    def render_f(data, transferfunction):
+        return fmodule.render(data,
+                              transferfunction.x0,
+                              transferfunction.A,
+                              transferfunction.sigma,
+                              transferfunction.colors)
 
     def render(self):
         if fmodule_available:
-            self.render_f()
+            self.image = self.render_f(self.data_obs, self.transferfunction)
         else:
-            self.render_py()
+            self.image = self.render_py(self.data_obs, self.transferfunction)
 
     def update(self, theta, phi, do_update=False):
 
@@ -235,7 +245,7 @@ def main():
     vmax = data.max()
     datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
 
-    Renderer(datacube)
+    Renderer(datacube, plot=True)
     plt.show()
 
 
