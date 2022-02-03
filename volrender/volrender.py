@@ -17,19 +17,16 @@ except Exception:
 
 class Renderer(object):
 
-    def __init__(self, data, x=None, y=None, z=None, N=300, interactive=False, tf=None):
+    def __init__(self, data, N=300, interactive=False, tf=None):
 
-        if x is None:
-            nx = data.shape[0]
-            x = np.linspace(-nx / 2, nx / 2, nx)
+        nx = data.shape[0]
+        x = np.linspace(-nx / 2, nx / 2, nx)
 
-        if y is None:
-            ny = data.shape[1]
-            y = np.linspace(-ny / 2, ny / 2, ny)
+        ny = data.shape[1]
+        y = np.linspace(-ny / 2, ny / 2, ny)
 
-        if z is None:
-            nz = data.shape[2]
-            z = np.linspace(-nz / 2, nz / 2, nz)
+        nz = data.shape[2]
+        z = np.linspace(-nz / 2, nz / 2, nz)
 
         self.nx = nx
         self.ny = ny
@@ -40,16 +37,18 @@ class Renderer(object):
         self.data = data
         self.data_obs = np.zeros([N, N, N])
 
+        self._f_int = fmodule_available
+
         self.phi = 0.0
         self.theta = 0.0
 
         # set the observer grid onto which the data will be transformed
         self._N = N
-        nmax = max(nx, ny, nz)
-        cx = np.linspace(-nmax / 2, nmax / 2, N)
-        cy = np.linspace(-nmax / 2, nmax / 2, N)
-        cz = np.linspace(-nmax / 2, nmax / 2, N)
-        self.xo, self.yo, self.zo = np.meshgrid(cx, cy, cz)
+        nmax = max(nx / 2, ny / 2, nz / 2)
+        cx = np.linspace(-nmax, nmax, N)
+        cy = np.linspace(-nmax, nmax, N)
+        cz = np.linspace(-nmax, nmax, N)
+        self.xo, self.yo, self.zo = np.meshgrid(cx, cy, cz, indexing='ij')
 
         # set up the transfer function
 
@@ -58,7 +57,8 @@ class Renderer(object):
         self.transferfunction = tf
 
         # set up the interpolation function
-        self.f_interp = RegularGridInterpolator((x, y, z), data, bounds_error=False, fill_value=0.0)
+        if not self._f_int:
+            self.init_interpolation()
 
         # the array holding the rendered image
 
@@ -89,6 +89,9 @@ class Renderer(object):
         self.update(self.slider_t.val, self.slider_p.val)
         plt.draw()
 
+    def init_interpolation(self):
+        self.f_interp = RegularGridInterpolator((self.x, self.y, self.z), self.data, bounds_error=False, fill_value=0.0)
+
     def render(self, phi=None, theta=None, update=True):
         """render the data from azimuth `phi`, elevation `theta`. Store in self.image
 
@@ -115,7 +118,10 @@ class Renderer(object):
             qi = np.array([qxR.ravel(), qyR.ravel(), qzR.ravel()]).T
 
             # Interpolate onto Camera Grid
-            self.data_obs = self.f_interp(qi).reshape((self._N, self._N, self._N))
+            if self._f_int:
+                self.data_obs = fmodule.interpolate(self.x, self.y, self.z, self.data, qi).reshape((self._N, self._N, self._N))
+            else:
+                self.data_obs = self.f_interp(qi).reshape((self._N, self._N, self._N))
 
         self.image = fmodule.render(self.data_obs,
                                     self.transferfunction.x0,
