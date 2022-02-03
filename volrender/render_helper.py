@@ -8,7 +8,7 @@ from multiprocessing.pool import Pool
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize, LogNorm
-from scipy.interpolate import RegularGridInterpolator
+# from scipy.interpolate import RegularGridInterpolator
 from tqdm import tqdm
 
 import volrender
@@ -52,7 +52,7 @@ def render(data, phi, theta, transferfunction):
     c = np.linspace(-n_max / 2, n_max / 2, n_max)
     xo, yo, zo = np.meshgrid(c, c, c)
 
-    f_interp = RegularGridInterpolator((x, y, z), data, bounds_error=False, fill_value=0.0)
+    # f_interp = RegularGridInterpolator((x, y, z), data, bounds_error=False, fill_value=0.0)
 
     qxR = xo * np.cos(phi) - yo * np.sin(phi) * np.cos(theta) + zo * np.sin(phi) * np.sin(theta)
     qyR = xo * np.sin(phi) + yo * np.cos(phi) * np.cos(theta) - zo * np.sin(theta) * np.cos(phi)
@@ -60,7 +60,8 @@ def render(data, phi, theta, transferfunction):
     qi = np.array([qxR.ravel(), qyR.ravel(), qzR.ravel()]).T
 
     # Interpolate onto Camera Grid
-    data_obs = f_interp(qi).reshape((n_max, n_max, n_max))
+    # data_obs = f_interp(qi).reshape((n_max, n_max, n_max))
+    data_obs = volrender.fmodule.interpolate(x, y, z, data, qi).reshape((n_max, n_max, n_max))
 
     return volrender.fmodule.render(data_obs,
                                     transferfunction.x0,
