@@ -67,26 +67,75 @@ class Renderer(object):
         # if a plot should be done
         self.interactive = interactive
         if interactive:
-            self.f, self.ax = plt.subplots(figsize=(6, 6))
+            self.f = plt.figure(figsize=(6, 8))
+            ratio = self.f.get_figwidth() / self.f.get_figheight()
+            self.ax = self.f.add_axes([0.1, 1 - 0.9 * ratio, 0.8, 0.8 * ratio])
             self.ax.set_aspect('equal')
-            self.im = self.ax.imshow(self.image, origin='lower')
+            self.im = self.ax.imshow(self.image.transpose(1, 0, 2), origin='lower')
 
             pos = self.ax.get_position()
-            self.slider_p_ax = self.f.add_axes([pos.x0, pos.y0 - 1 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_t_ax = self.f.add_axes([pos.x0, pos.y0 - 2 * pos.height / 20.0, pos.width, pos.height / 20.0])
 
-            self.slider_p = Slider(self.slider_p_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
-            self.slider_t = Slider(self.slider_t_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
+            # slider axes
 
-            self.slider_p.on_changed(self.slider_update)
-            self.slider_t.on_changed(self.slider_update)
+            self.slider_phi_ax = self.f.add_axes([pos.x0, pos.y0 - 2 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_the_ax = self.f.add_axes([pos.x0, pos.y0 - 3 * pos.height / 20.0, pos.width, pos.height / 20.0])
 
-            self.update(self.slider_t.val, self.slider_p.val, do_update=True)
+            self.slider_v00_ax = self.f.add_axes([pos.x0, pos.y0 - 4 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_v01_ax = self.f.add_axes([pos.x0, pos.y0 - 5 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_v02_ax = self.f.add_axes([pos.x0, pos.y0 - 6 * pos.height / 20.0, pos.width, pos.height / 20.0])
+
+            self.slider_A00_ax = self.f.add_axes([pos.x0, pos.y0 - 7 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_A01_ax = self.f.add_axes([pos.x0, pos.y0 - 8 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_A02_ax = self.f.add_axes([pos.x0, pos.y0 - 9 * pos.height / 20.0, pos.width, pos.height / 20.0])
+
+            # sliders
+
+            self.slider_sig_ax = self.f.add_axes([pos.x0, pos.y0 - 10 * pos.height / 20.0, pos.width, pos.height / 20.0])
+
+            self.slider_phi = Slider(self.slider_phi_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
+            self.slider_the = Slider(self.slider_the_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
+
+            self.slider_v00 = Slider(self.slider_v00_ax, '$v_0$', 0.0, 1.0, valinit=0.2, valfmt='%.1f')
+            self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=0.4, valfmt='%.1f')
+            self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=0.9, valfmt='%.1f')
+
+            self.slider_A00 = Slider(self.slider_A00_ax, '$A_0$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
+            self.slider_A01 = Slider(self.slider_A01_ax, '$A_1$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
+            self.slider_A02 = Slider(self.slider_A02_ax, '$A_2$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
+
+            self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(0.02), valfmt='%.1f')
+
+            # set update
+
+            self.slider_phi.on_changed(self.slider_update)
+            self.slider_the.on_changed(self.slider_update)
+
+            self.slider_v00.on_changed(self.slider_update)
+            self.slider_v01.on_changed(self.slider_update)
+            self.slider_v02.on_changed(self.slider_update)
+
+            self.slider_A00.on_changed(self.slider_update)
+            self.slider_A01.on_changed(self.slider_update)
+            self.slider_A02.on_changed(self.slider_update)
+
+            self.slider_sig.on_changed(self.slider_update)
+
+            self.update(self.slider_the.val, self.slider_phi.val, do_update=True)
 
             plt.show()
 
     def slider_update(self, event):
-        self.update(self.slider_t.val, self.slider_p.val)
+        self.transferfunction.x0[0] = self.slider_v00.val
+        self.transferfunction.x0[1] = self.slider_v01.val
+        self.transferfunction.x0[2] = self.slider_v02.val
+
+        self.transferfunction.A[0] = self.slider_A00.val
+        self.transferfunction.A[1] = self.slider_A01.val
+        self.transferfunction.A[2] = self.slider_A02.val
+
+        self.transferfunction.sigma = 10.**self.slider_sig.val * np.ones(3)
+
+        self.update(self.slider_the.val, self.slider_phi.val)
         plt.draw()
 
     def init_interpolation(self):
@@ -142,7 +191,7 @@ class Renderer(object):
         self.render(phi, theta, update=do_update)
 
         if self.interactive:
-            self.im.set_data(Normalize()(self.image))
+            self.im.set_data(Normalize()(self.image.transpose(1, 0, 2)))
             plt.draw()
 
     def plot(self, norm=None, diagnostics=False, L=None):
