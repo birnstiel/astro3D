@@ -1,12 +1,12 @@
 .ipynb_checkpoints/
 *.mp4
 *.pdf
-*.png
 *.pyc
 *.mod
 *.so
 frames/
 *.egg-info/
 build/
-*.jpg
+notebooks/*.png
+notebooks/*.jpg
 /data/
