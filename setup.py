@@ -62,6 +62,7 @@ if __name__ == "__main__":
                 'console_scripts': [
                     'volrender=volrender.volrender:main',
                     'render_movie=volrender.render_helper:main',
+                    'image_stack=volrender.image_stack:main',
                 ],
             }
         )
