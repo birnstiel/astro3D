@@ -9,3 +9,7 @@ To use the volume rendering, try out this:
 or this:
 
     volrender -f rho pluto_data.npz
+
+This should produce a volume rendering of the given data like this:
+
+![](Figure_1.png)
