@@ -65,7 +65,6 @@ def render(data, phi, theta, transferfunction):
 
     return volrender.fmodule.render(data_obs,
                                     transferfunction.x0,
-                                    transferfunction.A,
                                     transferfunction.sigma,
                                     transferfunction.colors)
 
@@ -80,14 +79,14 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames'):
     """
     # create the transfer function from the module attributes
     if tf is None:
-        tf = volrender.TransferFunction(x0=x0, A=A, sigma=sigma, colors=colors)
+        tf = volrender.TransferFunction(x0=x0, sigma=sigma, colors=colors)
 
     # make the plot
     f, ax = plt.subplots(figsize=(4, 4), dpi=150)
     ax.axis('off')
 
     image = render(data, phi, theta, tf)
-    ax.imshow(Normalize()(image).data)
+    ax.imshow(Normalize()(image).data.transpose(1, 0, 2))
     f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=200)
     plt.close(f)
 
@@ -134,14 +133,14 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4'):
     else:
         with Pool(ncpu) as p:
             # list(tqdm(p.imap(worker, range(n_angles)), total=n_angles))
-            list(p.starmap(makeframe, zip(
+            list(p.starmap(makeframe, tqdm(zip(
                 range(len(theta)),
                 repeat(data),
                 theta,
                 phi,
                 repeat(tf),
-                repeat(temp_dir.name)
-            )))
+                repeat(temp_dir.name)), total=len(theta)),
+                chunksize=ncpu))
 
     subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 400k -pix_fmt yuv420p -r 20 -bufsize 1835k ' + fname).split())
     temp_dir.cleanup()
