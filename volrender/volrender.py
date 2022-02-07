@@ -1,4 +1,5 @@
 import argparse
+from turtle import update
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, Normalize
@@ -17,7 +18,7 @@ except Exception:
 
 class Renderer(object):
 
-    def __init__(self, data, N=300, interactive=False, tf=None):
+    def __init__(self, data, N=300, interactive=False, diagnostics=False, tf=None):
 
         nx = data.shape[0]
         x = np.linspace(-nx / 2, nx / 2, nx)
@@ -66,31 +67,72 @@ class Renderer(object):
 
         # if a plot should be done
         self.interactive = interactive
+        self.diagnostics = diagnostics
         if interactive:
-            self.f = plt.figure(figsize=(6, 8))
+            # make the figure; make it wider if the histogram is plotted
+            self.f = plt.figure(figsize=(6 * (1 + diagnostics), 10))
             ratio = self.f.get_figwidth() / self.f.get_figheight()
-            self.ax = self.f.add_axes([0.1, 1 - 0.9 * ratio, 0.8, 0.8 * ratio])
+            # this is adding a square axis in the top ~half
+            # will cover only the left side if the histogram is added
+            self.ax = self.f.add_axes([
+                0.1,
+                1 - 0.9 * ratio / (1 + diagnostics),
+                0.8 / (1 + diagnostics),
+                0.8 * ratio / (1 + diagnostics)])
             self.ax.set_aspect('equal')
             self.im = self.ax.imshow(self.image.transpose(1, 0, 2), origin='lower')
 
             pos = self.ax.get_position()
 
+            # if the histogram should be shown
+            if diagnostics:
+                # add another axis
+                self._axd = self.ax = self.f.add_axes([
+                    0.55,
+                    1 - 0.9 * ratio / (1 + diagnostics),
+                    0.8 / (1 + diagnostics),
+                    0.8 * ratio / (1 + diagnostics)])
+
+                counts, edges = np.histogram(self.data.ravel(), 200, density=True)
+                centers = 0.5 * (edges[1:] + edges[:-1])
+                self._centers = centers
+
+                # display the denisty histogram
+                self._axd.plot(centers, counts, '0.5', ds='steps')
+
+                # display the colors
+                rgba = self.transferfunction(centers)
+                tf_image = (rgba[:3, :, None] * np.ones(100)[None, None, :]).T
+                tf_image = Normalize()(tf_image)
+
+                self._fillmax = counts.max()
+                self._fillmin = self._fillmax * 1e-10
+
+                self._im_diag = self._axd.imshow(tf_image, extent=[*centers[[0, -1]], self._fillmin, self._fillmax],
+                                                 interpolation='none', interpolation_stage='data', resample=True)
+                self._fill = self._axd.fill_between(centers, rgba[-1], self._fillmax, fc='white', ec='k', zorder=0)
+                self._axd.set_ylim(self._fillmin, self._fillmax)
+                self._axd.set_aspect('auto')
+                self._axd.set_yscale('log')
+
             # slider axes
 
-            self.slider_phi_ax = self.f.add_axes([pos.x0, pos.y0 - 2 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_the_ax = self.f.add_axes([pos.x0, pos.y0 - 3 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            hw_ratio = 20.0
 
-            self.slider_v00_ax = self.f.add_axes([pos.x0, pos.y0 - 4 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_v01_ax = self.f.add_axes([pos.x0, pos.y0 - 5 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_v02_ax = self.f.add_axes([pos.x0, pos.y0 - 6 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_phi_ax = self.f.add_axes([pos.x0, pos.y0 - 2 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+            self.slider_the_ax = self.f.add_axes([pos.x0, pos.y0 - 3 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
 
-            self.slider_A00_ax = self.f.add_axes([pos.x0, pos.y0 - 7 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_A01_ax = self.f.add_axes([pos.x0, pos.y0 - 8 * pos.height / 20.0, pos.width, pos.height / 20.0])
-            self.slider_A02_ax = self.f.add_axes([pos.x0, pos.y0 - 9 * pos.height / 20.0, pos.width, pos.height / 20.0])
+            self.slider_v00_ax = self.f.add_axes([pos.x0, pos.y0 - 4 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+            self.slider_v01_ax = self.f.add_axes([pos.x0, pos.y0 - 5 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+            self.slider_v02_ax = self.f.add_axes([pos.x0, pos.y0 - 6 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+
+            self.slider_sig_ax = self.f.add_axes([pos.x0, pos.y0 - 7 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+
+            self.slider_al1_ax = self.f.add_axes([pos.x0, pos.y0 - 8 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+            self.slider_al2_ax = self.f.add_axes([pos.x0, pos.y0 - 9 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
+            self.slider_al3_ax = self.f.add_axes([pos.x0, pos.y0 - 10 * pos.height / hw_ratio, pos.width, pos.height / hw_ratio])
 
             # sliders
-
-            self.slider_sig_ax = self.f.add_axes([pos.x0, pos.y0 - 10 * pos.height / 20.0, pos.width, pos.height / 20.0])
 
             self.slider_phi = Slider(self.slider_phi_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
             self.slider_the = Slider(self.slider_the_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
@@ -99,11 +141,11 @@ class Renderer(object):
             self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=0.4, valfmt='%.1f')
             self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=0.9, valfmt='%.1f')
 
-            self.slider_A00 = Slider(self.slider_A00_ax, '$A_0$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
-            self.slider_A01 = Slider(self.slider_A01_ax, '$A_1$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
-            self.slider_A02 = Slider(self.slider_A02_ax, '$A_2$', 0.0, 10.0, valinit=0.1, valfmt='%.1f')
-
             self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(0.02), valfmt='%.1f')
+
+            self.slider_al1 = Slider(self.slider_al1_ax, 'alpha$_1$', 0, 1, valinit=1e-2, valfmt='%.1f')
+            self.slider_al2 = Slider(self.slider_al2_ax, 'alpha$_2$', 0, 1, valinit=5e-2, valfmt='%.1f')
+            self.slider_al3 = Slider(self.slider_al3_ax, 'alpha$_3$', 0, 1, valinit=1e-1, valfmt='%.1f')
 
             # set update
 
@@ -114,11 +156,11 @@ class Renderer(object):
             self.slider_v01.on_changed(self.slider_update)
             self.slider_v02.on_changed(self.slider_update)
 
-            self.slider_A00.on_changed(self.slider_update)
-            self.slider_A01.on_changed(self.slider_update)
-            self.slider_A02.on_changed(self.slider_update)
-
             self.slider_sig.on_changed(self.slider_update)
+
+            self.slider_al1.on_changed(self.slider_update)
+            self.slider_al2.on_changed(self.slider_update)
+            self.slider_al3.on_changed(self.slider_update)
 
             self.update(self.slider_the.val, self.slider_phi.val, do_update=True)
 
@@ -129,17 +171,28 @@ class Renderer(object):
         self.transferfunction.x0[1] = self.slider_v01.val
         self.transferfunction.x0[2] = self.slider_v02.val
 
-        self.transferfunction.A[0] = self.slider_A00.val
-        self.transferfunction.A[1] = self.slider_A01.val
-        self.transferfunction.A[2] = self.slider_A02.val
-
         self.transferfunction.sigma = 10.**self.slider_sig.val * np.ones(3)
 
+        self.transferfunction.colors[0, -1] = self.slider_al1.val
+        self.transferfunction.colors[1, -1] = self.slider_al2.val
+        self.transferfunction.colors[2, -1] = self.slider_al3.val
+
         self.update(self.slider_the.val, self.slider_phi.val)
+
+        if self.diagnostics:
+            self.update_diagnostics()
         plt.draw()
 
     def init_interpolation(self):
         self.f_interp = RegularGridInterpolator((self.x, self.y, self.z), self.data, bounds_error=False, fill_value=0.0)
+
+    def update_diagnostics(self):
+        rgba = self.transferfunction(self._centers)
+        tf_image = (rgba[:3, :, None] * np.ones(100)[None, None, :]).T
+        tf_image = Normalize()(tf_image)
+        self._im_diag.set_data(Normalize()(tf_image))
+        self._axd.collections.clear()
+        self._fill = self._axd.fill_between(self._centers, rgba[-1], self._fillmax, fc='white', ec='k', zorder=0)
 
     def render(self, phi=None, theta=None, update=True):
         """render the data from azimuth `phi`, elevation `theta`. Store in self.image
@@ -174,7 +227,6 @@ class Renderer(object):
 
         self.image = fmodule.render(self.data_obs,
                                     self.transferfunction.x0,
-                                    self.transferfunction.A,
                                     self.transferfunction.sigma,
                                     self.transferfunction.colors)
 
@@ -287,8 +339,6 @@ class TransferFunction(object):
             input data, 1D
         x0 : array | list
             positions of the gaussian peaks, shape = (N)
-        A : array | list
-            amplitude of each gaussian component, shape = (N)
         sigma : array | list
             width of each gaussian component, shape = (N)
         colors : array | list
@@ -300,7 +350,6 @@ class TransferFunction(object):
             RGBA values for each element in x, shape = (len(x), 4)
         """
         self.x0 = kwargs.pop('x0', np.array([0.2, 0.4, 0.9]))
-        self.A = kwargs.pop('A', np.array([0.1, 0.1, 0.1]))
         self.sigma = kwargs.pop('sigma', [0.02, 0.02, 0.02])
         self.colors = kwargs.pop('colors',
                                  np.array([
@@ -327,13 +376,12 @@ class TransferFunction(object):
         extra_dims = tuple(np.arange(x.ndim))
 
         x0 = np.expand_dims(self.x0, axis=extra_dims)
-        A = np.expand_dims(self.A, axis=extra_dims)
         sigma = np.expand_dims(self.sigma, axis=extra_dims)
         colors = np.expand_dims(self.colors, axis=extra_dims)
 
-        assert x0.shape == A.shape == sigma.shape, 'shapes of x0, A, and sigma must match'
+        assert x0.shape == sigma.shape == colors.shape[:2], 'shapes of x0, colors, and sigma must match (colors with one extra-dimension of len=4)'
 
-        vals = colors[..., :, :] * A[..., :, None] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
+        vals = colors[..., :, :] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
 
         return vals.sum(-2).T
 
@@ -342,6 +390,7 @@ def main():
     RTHF = argparse.RawTextHelpFormatter
     PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
     PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default=None)
+    PARSER.add_argument('-d', '--diagnostics', help='show diagnostics in interactive view', action='store_true', default=False)
     PARSER.add_argument('filename', help='which .npz file to read', type=str)
     ARGS = PARSER.parse_args()
 
@@ -356,7 +405,7 @@ def main():
     vmax = data.max()
     datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
 
-    Renderer(datacube, interactive=True)
+    Renderer(datacube, interactive=True, diagnostics=ARGS.diagnostics)
     plt.show()
 
 
