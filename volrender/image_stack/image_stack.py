@@ -1,6 +1,4 @@
 from pathlib import Path
-import argparse
-from multiprocessing import Pool
 from itertools import repeat
 
 import numpy as np
@@ -146,7 +144,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     n = len(z2)
 
     if pool is None:
-        res = list(tqdm(
+        list(tqdm(
             map(makeslice, range(n),
                 repeat(z2),
                 repeat(f_interp),
@@ -156,7 +154,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
             total=n))
     else:
         with pool:
-            res = list(
+            list(
                 pool.starmap(
                     makeslice,
                     tqdm(
@@ -169,41 +167,3 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                             repeat(path)
                         ), total=n),
                     chunksize=4))
-
-
-def main():
-    RTHF = argparse.RawTextHelpFormatter
-    PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
-    PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default=None)
-    PARSER.add_argument('filename', help='which .npz file to read', type=str)
-    PARSER.add_argument('-L', '--height', help='height in cm', type=float, default=10.)
-    PARSER.add_argument('-x', '--dpi_x', help='dpi in x', type=float, default=600.)
-    PARSER.add_argument('-y', '--dpi_y', help='dpi in y', type=float, default=600.)
-    PARSER.add_argument('-z', '--dpi_z', help='dpi in z', type=float, default=1200)
-    PARSER.add_argument('-c', '--cpus', help='how many cores to use', type=int, default=1)
-    PARSER.add_argument('-o', '--output', help='output folder', type=str, default='slices')
-    ARGS = PARSER.parse_args()
-
-    print('reading data ... ', end='')
-    if ARGS.field is None:
-        data = np.load(ARGS.filename)
-    else:
-        with np.load(ARGS.filename) as f:
-            data = f[ARGS.field]
-    print('Done!')
-
-    if ARGS.cpus == 1:
-        pool = None
-    else:
-        pool = Pool(processes=ARGS.cpus)
-
-    # vmax = data.max()
-    # datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
-
-    process(data, height=ARGS.height,
-            dpi_x=ARGS.dpi_x, dpi_y=600, dpi_z=1200,
-            output_dir=ARGS.output, norm=None, pool=pool)
-
-
-if __name__ == '__main__':
-    main()
