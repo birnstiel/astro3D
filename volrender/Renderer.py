@@ -1,13 +1,17 @@
-import argparse
-from turtle import update
+import warnings
+
 import numpy as np
+
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm, Normalize
+from matplotlib.colors import Normalize
 from matplotlib import cm
 from matplotlib.colors import ListedColormap
-from scipy.interpolate import RegularGridInterpolator
 from matplotlib.widgets import Slider
-import warnings
+
+from scipy.interpolate import RegularGridInterpolator
+
+from .TransferFunction import TransferFunction
+
 try:
     from volrender import fmodule
     fmodule_available = True
@@ -137,15 +141,15 @@ class Renderer(object):
             self.slider_phi = Slider(self.slider_phi_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
             self.slider_the = Slider(self.slider_the_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
 
-            self.slider_v00 = Slider(self.slider_v00_ax, '$v_0$', 0.0, 1.0, valinit=0.2, valfmt='%.1f')
-            self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=0.4, valfmt='%.1f')
-            self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=0.9, valfmt='%.1f')
+            self.slider_v00 = Slider(self.slider_v00_ax, '$v_0$', 0.0, 1.0, valinit=self.transferfunction.x0[0], valfmt='%.1f')
+            self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=self.transferfunction.x0[1], valfmt='%.1f')
+            self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=self.transferfunction.x0[2], valfmt='%.1f')
 
-            self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(0.02), valfmt='%.1f')
+            self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(self.transferfunction.sigma[0]), valfmt='%.1f')
 
-            self.slider_al1 = Slider(self.slider_al1_ax, 'alpha$_1$', 0, 1, valinit=1e-2, valfmt='%.1f')
-            self.slider_al2 = Slider(self.slider_al2_ax, 'alpha$_2$', 0, 1, valinit=5e-2, valfmt='%.1f')
-            self.slider_al3 = Slider(self.slider_al3_ax, 'alpha$_3$', 0, 1, valinit=1e-1, valfmt='%.1f')
+            self.slider_al1 = Slider(self.slider_al1_ax, 'alpha$_1$', 0, 1, valinit=self.transferfunction.colors[0, -1], valfmt='%.1f')
+            self.slider_al2 = Slider(self.slider_al2_ax, 'alpha$_2$', 0, 1, valinit=self.transferfunction.colors[1, -1], valfmt='%.1f')
+            self.slider_al3 = Slider(self.slider_al3_ax, 'alpha$_3$', 0, 1, valinit=self.transferfunction.colors[2, -1], valfmt='%.1f')
 
             # set update
 
@@ -328,87 +332,3 @@ class Renderer(object):
             ax.set_yscale('log')
 
             return f, ax
-
-
-class TransferFunction(object):
-    def __init__(self, **kwargs):
-        """
-        Parameters
-        ----------
-        x : array
-            input data, 1D
-        x0 : array | list
-            positions of the gaussian peaks, shape = (N)
-        sigma : array | list
-            width of each gaussian component, shape = (N)
-        colors : array | list
-            4-element RGBA color for each gaussian component, shape = (N, 4)
-
-        Returns
-        -------
-        array
-            RGBA values for each element in x, shape = (len(x), 4)
-        """
-        self.x0 = kwargs.pop('x0', np.array([0.2, 0.4, 0.9]))
-        self.sigma = kwargs.pop('sigma', [0.02, 0.02, 0.02])
-        self.colors = kwargs.pop('colors',
-                                 np.array([
-                                     [1.0, 0.0, 0.0, 1e-2],
-                                     [0.0, 1.0, 0.0, 5e-2],
-                                     [0.0, 0.0, 1.0, 1e-1],
-                                 ])
-                                 )
-
-    def __call__(self, x):
-        """returns RGBA values for input array `x`
-
-        Parameters
-        ----------
-        x : array
-            input data, 1D
-
-        Returns
-        -------
-        array
-            RGBA values for each element in x, shape = (len(x), 4)
-        """
-
-        extra_dims = tuple(np.arange(x.ndim))
-
-        x0 = np.expand_dims(self.x0, axis=extra_dims)
-        sigma = np.expand_dims(self.sigma, axis=extra_dims)
-        colors = np.expand_dims(self.colors, axis=extra_dims)
-
-        assert x0.shape == sigma.shape == colors.shape[:2], 'shapes of x0, colors, and sigma must match (colors with one extra-dimension of len=4)'
-
-        vals = colors[..., :, :] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
-
-        return vals.sum(-2).T
-
-
-def main():
-    RTHF = argparse.RawTextHelpFormatter
-    PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
-    PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default=None)
-    PARSER.add_argument('-d', '--diagnostics', help='show diagnostics in interactive view', action='store_true', default=False)
-    PARSER.add_argument('filename', help='which .npz file to read', type=str)
-    ARGS = PARSER.parse_args()
-
-    print('reading data ... ', end='')
-    if ARGS.field is None:
-        data = np.load(ARGS.filename)
-    else:
-        with np.load(ARGS.filename) as f:
-            data = f[ARGS.field]
-    print('Done!')
-
-    vmax = data.max()
-    datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
-
-    Renderer(datacube, interactive=True, diagnostics=ARGS.diagnostics)
-    plt.show()
-
-
-if __name__ == '__main__':
-    main()
-    plt.show()

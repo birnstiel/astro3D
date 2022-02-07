@@ -60,9 +60,9 @@ if __name__ == "__main__":
             zip_safe=False,
             entry_points={
                 'console_scripts': [
-                    'volrender=volrender.volrender:main',
-                    'render_movie=volrender.render_helper:main',
-                    'image_stack=volrender.image_stack:main',
+                    'volrender=volrender.CLI:volrender_CLI',
+                    'render_movie=volrender.CLI:render_movie_CLI',
+                    'image_stack=volrender.CLI:image_stack_CLI',
                 ],
             }
         )
