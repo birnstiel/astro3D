@@ -16,6 +16,9 @@ def volrender_CLI():
     PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
     PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default='arr_0')
     PARSER.add_argument('-d', '--diagnostics', help='show diagnostics in interactive view', action='store_true', default=False)
+    PARSER.add_argument('-c', '--contrast', help='contrast wrt maximum value to use for normalization, default = 1e-4', type=float, default=1e-4)
+    PARSER.add_argument('-v', '--vmax', help='maximum value to use for normalization; uses maximum by default', type=float, default=None)
+    PARSER.add_argument('-N', '--N', help='image resolution, default is 300', type=int, default=300)
     PARSER.add_argument('filename', help='which .npz file to read', type=str)
     ARGS = PARSER.parse_args()
 
@@ -27,10 +30,14 @@ def volrender_CLI():
             data = f[ARGS.field]
     print('Done!')
 
-    vmax = data.max()
-    datacube = LogNorm(vmin=vmax * 1e-4, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
+    if ARGS.vmax is None:
+        vmax = data.max()
+    else:
+        vmax = ARGS.vmax
 
-    Renderer(datacube, interactive=True, diagnostics=ARGS.diagnostics)
+    datacube = LogNorm(vmin=vmax * ARGS.contrast, vmax=vmax, clip=True)(data.ravel()).reshape(data.shape).data
+
+    Renderer(datacube, interactive=True, diagnostics=ARGS.diagnostics, N=ARGS.N)
     plt.show()
 
 
