@@ -84,7 +84,7 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames'):
     ax.axis('off')
 
     image = render(data, phi, theta, tf)
-    ax.imshow(Normalize()(image).data.transpose(1, 0, 2))
+    ax.imshow(Normalize()(image).data, origin='lower')
     f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=200)
     plt.close(f)
 
