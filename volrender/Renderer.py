@@ -138,18 +138,18 @@ class Renderer(object):
 
             # sliders
 
-            self.slider_phi = Slider(self.slider_phi_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.1f')
-            self.slider_the = Slider(self.slider_the_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.1f')
+            self.slider_phi = Slider(self.slider_phi_ax, 'azimuth', 0.0, 360.0, valinit=0.0, valfmt='%.2f')
+            self.slider_the = Slider(self.slider_the_ax, 'elevation', 0.0, 180.0, valinit=0.0, valfmt='%.2f')
 
-            self.slider_v00 = Slider(self.slider_v00_ax, '$v_0$', 0.0, 1.0, valinit=self.transferfunction.x0[0], valfmt='%.1f')
-            self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=self.transferfunction.x0[1], valfmt='%.1f')
-            self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=self.transferfunction.x0[2], valfmt='%.1f')
+            self.slider_v00 = Slider(self.slider_v00_ax, '$v_0$', 0.0, 1.0, valinit=self.transferfunction.x0[0], valfmt='%.2f')
+            self.slider_v01 = Slider(self.slider_v01_ax, '$v_1$', 0.0, 1.0, valinit=self.transferfunction.x0[1], valfmt='%.2f')
+            self.slider_v02 = Slider(self.slider_v02_ax, '$v_2$', 0.0, 1.0, valinit=self.transferfunction.x0[2], valfmt='%.2f')
 
-            self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(self.transferfunction.sigma[0]), valfmt='%.1f')
+            self.slider_sig = Slider(self.slider_sig_ax, '$sig$', -2, 2, valinit=np.log10(self.transferfunction.sigma[0]), valfmt='%.2f')
 
-            self.slider_al1 = Slider(self.slider_al1_ax, 'alpha$_1$', 0, 1, valinit=self.transferfunction.colors[0, -1], valfmt='%.1f')
-            self.slider_al2 = Slider(self.slider_al2_ax, 'alpha$_2$', 0, 1, valinit=self.transferfunction.colors[1, -1], valfmt='%.1f')
-            self.slider_al3 = Slider(self.slider_al3_ax, 'alpha$_3$', 0, 1, valinit=self.transferfunction.colors[2, -1], valfmt='%.1f')
+            self.slider_al1 = Slider(self.slider_al1_ax, 'alpha$_1$', 0, 1, valinit=self.transferfunction.colors[0, -1], valfmt='%.2f')
+            self.slider_al2 = Slider(self.slider_al2_ax, 'alpha$_2$', 0, 1, valinit=self.transferfunction.colors[1, -1], valfmt='%.2f')
+            self.slider_al3 = Slider(self.slider_al3_ax, 'alpha$_3$', 0, 1, valinit=self.transferfunction.colors[2, -1], valfmt='%.2f')
 
             # set update
 
@@ -281,7 +281,7 @@ class Renderer(object):
         else:
             f, ax = plt.subplots(figsize=(4, 4), dpi=200)
 
-        ax.imshow(Normalize()(self.image), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True)
+        ax.imshow(Normalize()(self.image).transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True)
 
         ax.set_xlabel('x [au]')
         ax.set_ylabel('y [au]')
@@ -330,5 +330,6 @@ class Renderer(object):
             ax.set_ylim(ymin, ymax)
             ax.set_aspect('auto')
             ax.set_yscale('log')
+            ax = axs[0]
 
-            return f, ax
+        return f, ax
