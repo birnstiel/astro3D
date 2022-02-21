@@ -247,7 +247,7 @@ class Renderer(object):
         self.render(phi, theta, update=do_update)
 
         if self.interactive:
-            self.im.set_data(Normalize()(self.image.transpose(1, 0, 2)))
+            self.im.set_data(Normalize()(self.image).data.transpose(1, 0, 2))
             plt.draw()
 
     def plot(self, norm=None, diagnostics=False, L=None):
@@ -281,7 +281,7 @@ class Renderer(object):
         else:
             f, ax = plt.subplots(figsize=(4, 4), dpi=200)
 
-        ax.imshow(Normalize()(self.image).transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True)
+        ax.imshow(Normalize()(self.image).data.transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True, origin='lower')
 
         ax.set_xlabel('x [au]')
         ax.set_ylabel('y [au]')
