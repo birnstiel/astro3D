@@ -4,10 +4,12 @@ module fmodule
 
     contains
 
-subroutine render(image, data, x0, sigma, colors, nx, ny, nz, N)
+subroutine render(image, data, x0, sigma, colors, bg, nx, ny, nz, N)
 implicit none
 INTEGER, INTENT(IN) :: nx, ny, nz, N
-DOUBLE PRECISION, intent(out) :: image(nx, ny, 3)
+DOUBLE PRECISION, INTENT(IN) :: bg
+!f2py DOUBLE PRECISION OPTIONAL, INTENT(IN) :: bg = 0.0
+DOUBLE PRECISION, intent(out) :: image(nx, ny, 4)
 DOUBLE PRECISION, intent(in) :: data(nx, ny, nz)
 DOUBLE PRECISION, intent(in), DIMENSION(N) :: x0, sigma
 DOUBLE PRECISION, intent(in), DIMENSION(N, 4) :: colors
@@ -15,7 +17,7 @@ DOUBLE PRECISION, DIMENSION(nx, ny) :: slice
 DOUBLE PRECISION, DIMENSION(nx, ny, 4) :: rgba
 integer :: i
 
-image = 0.0
+image = bg
 
 do i = 1, nz
     slice = data(:, :, i)
@@ -23,6 +25,7 @@ do i = 1, nz
     image(:, :, 1) = rgba(:, :, 4) * rgba(:, :, 1) + (1 - rgba(:, :, 4)) * image(:, :, 1)
     image(:, :, 2) = rgba(:, :, 4) * rgba(:, :, 2) + (1 - rgba(:, :, 4)) * image(:, :, 2)
     image(:, :, 3) = rgba(:, :, 4) * rgba(:, :, 3) + (1 - rgba(:, :, 4)) * image(:, :, 3)
+    image(:, :, 4) = rgba(:, :, 4) * rgba(:, :, 4) + (1 - rgba(:, :, 4)) * image(:, :, 4)
 end do
 
 end subroutine render
