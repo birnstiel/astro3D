@@ -20,7 +20,7 @@ _colors = np.array([
     [1., 0., 0.25, 0.1]])
 
 
-def render(data, phi, theta, transferfunction):
+def render(data, phi, theta, transferfunction, transparent=False):
     """render the data from azimuth `phi`, elevation `theta` using the given transfer function.
 
     Parameters
@@ -61,10 +61,15 @@ def render(data, phi, theta, transferfunction):
     # data_obs = f_interp(qi).reshape((n_max, n_max, n_max))
     data_obs = volrender.fmodule.interpolate(x, y, z, data, qi).reshape((n_max, n_max, n_max))
 
-    return volrender.fmodule.render(data_obs,
-                                    transferfunction.x0,
-                                    transferfunction.sigma,
-                                    transferfunction.colors)
+    res = volrender.fmodule.render(data_obs,
+                                   transferfunction.x0,
+                                   transferfunction.sigma,
+                                   transferfunction.colors)
+
+    if not transparent:
+        res = res[:, :, :3]
+
+    return res
 
 
 def makeframe(i, data, theta, phi, tf=None, dir='frames'):

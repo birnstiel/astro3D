@@ -30,7 +30,7 @@ class TransferFunction(object):
                                  ])
                                  )
 
-    def __call__(self, x):
+    def __call__(self, x, invert=False):
         """returns RGBA values for input array `x`
 
         Parameters
@@ -43,15 +43,23 @@ class TransferFunction(object):
         array
             RGBA values for each element in x, shape = (len(x), 4)
         """
+        if invert:
+            colors = self.colors.copy()
+            colors[:, :3] = 1.0 - colors[:, :3]
+        else:
+            colors = self.colors
 
         extra_dims = tuple(np.arange(x.ndim))
 
         x0 = np.expand_dims(self.x0, axis=extra_dims)
         sigma = np.expand_dims(self.sigma, axis=extra_dims)
-        colors = np.expand_dims(self.colors, axis=extra_dims)
+        colors = np.expand_dims(colors, axis=extra_dims)
 
         assert x0.shape == sigma.shape == colors.shape[:2], 'shapes of x0, colors, and sigma must match (colors with one extra-dimension of len=4)'
 
         vals = colors[..., :, :] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
 
-        return vals.sum(-2).T
+        ret = vals.sum(-2).T
+        if invert:
+            ret = 1.0 - ret
+        return ret
