@@ -20,7 +20,7 @@ _colors = np.array([
     [1., 0., 0.25, 0.1]])
 
 
-def render(data, phi, theta, transferfunction, transparent=False):
+def render(data, phi, theta, transferfunction, transparent=False, N=None):
     """render the data from azimuth `phi`, elevation `theta` using the given transfer function.
 
     Parameters
@@ -33,6 +33,10 @@ def render(data, phi, theta, transferfunction, transparent=False):
         polar angle in degree
     transferfunction : `volrender.volrender.Transferfunction`
         the transfer function returning a RGBA value for each input.
+
+    N : int
+        resolution of the interpolated data, by default
+        maximum length of the input data dimensions
 
     Returns
     -------
@@ -47,7 +51,8 @@ def render(data, phi, theta, transferfunction, transparent=False):
     z = np.linspace(-nz / 2, nz / 2, nz)
 
     n_max = max(data.shape)
-    c = np.linspace(-n_max / 2, n_max / 2, n_max)
+    N = N or n_max
+    c = np.linspace(-n_max / 2, n_max / 2, N)
     xo, yo, zo = np.meshgrid(c, c, c)
 
     # f_interp = RegularGridInterpolator((x, y, z), data, bounds_error=False, fill_value=0.0)
@@ -59,7 +64,7 @@ def render(data, phi, theta, transferfunction, transparent=False):
 
     # Interpolate onto Camera Grid
     # data_obs = f_interp(qi).reshape((n_max, n_max, n_max))
-    data_obs = volrender.fmodule.interpolate(x, y, z, data, qi).reshape((n_max, n_max, n_max))
+    data_obs = volrender.fmodule.interpolate(x, y, z, data, qi).reshape((N, N, N))
 
     res = volrender.fmodule.render(data_obs,
                                    transferfunction.x0,
@@ -72,13 +77,25 @@ def render(data, phi, theta, transferfunction, transparent=False):
     return res
 
 
-def makeframe(i, data, theta, phi, tf=None, dir='frames'):
+def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None):
     """Render a frame.
 
     Parameters
     ----------
     i : int
         integer value of the angle array set in the module.
+
+    data : array   
+        3d data set
+
+    theta, phi: float
+        the angles
+
+    tf : volrender.TransferFunction
+        the transfer function to be used
+
+    N : int
+        output resolution, see `render`
     """
     # create the transfer function from the module attributes
     if tf is None:
@@ -88,13 +105,32 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames'):
     f, ax = plt.subplots(figsize=(4, 4), dpi=150)
     ax.axis('off')
 
-    image = render(data, phi, theta, tf)
+    image = render(data, phi, theta, tf, N=N)
     ax.imshow(Normalize()(image).data, origin='lower')
     f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=200)
     plt.close(f)
 
 
-def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4'):
+def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None):
+    """Renders a movie for the given theta and phi arrays.
+
+    Parameters
+    ----------
+    data : array
+        3d data to be rendered (uniform cartesian)
+    theta : array
+        the elevation angles for the frames
+    phi : array
+        the azimuthal angles for all frames, same size as theta
+    ncpu : int, optional
+        number of CPUs to use, by default 4
+    tf : volrender.TransferFunction, optional
+        transfer function to be used, by default None
+    fname : str, optional
+        output file name, by default 'movie.mp4'
+    N : int, optional
+        resolution of the interpolated data, by default maximum of input dimension
+    """
 
     temp_dir = tempfile.TemporaryDirectory(dir='.', prefix='frames_')
 
@@ -112,7 +148,7 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4'):
                 phi,
                 repeat(tf),
                 repeat(temp_dir.name)), total=len(theta)),
-                chunksize=ncpu))
+                chunksize=1))
 
     subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 400k -pix_fmt yuv420p -r 20 -bufsize 1835k ' + fname).split())
     temp_dir.cleanup()
