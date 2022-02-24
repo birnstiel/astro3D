@@ -264,12 +264,12 @@ class Renderer(object):
             self.im.set_data(Normalize()(self.image[:, :, :3]).data.transpose(1, 0, 2))
             plt.draw()
 
-    def plot(self, norm=None, diagnostics=False, L=None, alpha=None):
+    def plot(self, cb_norm=None, diagnostics=False, L=None, alpha=None):
         """Make a plot of the rendered image
 
         Parameters
         ----------
-        norm : norm, optional
+        cb_norm : norm, optional
              that was used to scale the data, assuming linear 0...1 if none is given, by default None
         diagnostics : bool, optional
             if true, plot also diagnostics of the transfer function and image, by default False
@@ -283,10 +283,10 @@ class Renderer(object):
         figure, axes
         """
 
-        if norm is None:
+        if cb_norm is None:
             print('no norm given assuming linear from 0 to 1')
             vmax = self.image[:, :, :3].max()
-            norm = Normalize(vmin=0, vmax=vmax, clip=True)
+            cb_norm = Normalize(vmin=0, vmax=vmax, clip=True)
 
         if L is None:
             L = self.data.shape[0]
@@ -305,12 +305,13 @@ class Renderer(object):
             image[:, :, 3] = alpha
 
         # normalize the image
-        image[:, :, :3] = norm(self.image[:, :, :3]).data
+        # image[:, :, :3] = norm(self.image[:, :, :3].ravel()).data.reshape(self.image[:, :, :3].shape)
 
         ax.imshow(image.transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True, origin='lower')
 
         ax.set_xlabel('x [au]')
         ax.set_ylabel('y [au]')
+        ax.set_facecolor('none')
 
         # make axis for the colorbar
 
@@ -318,16 +319,19 @@ class Renderer(object):
         cax = f.add_axes([pos.x1 + pos.height / 20 / 5, pos.y0, pos.height / 20, pos.height])
 
         # make a color map based on the transfer function
-
-        x = np.linspace(0, 1, 200)
-        tf_image = self.transferfunction(x)
+        if cb_norm.vmin > 0.0:
+            xo = np.geomspace(cb_norm.vmin, cb_norm.vmax, 200)
+        else:
+            xo = np.linspace(cb_norm.vmin, cb_norm.vmax, 200)
+        xn = cb_norm(xo)
+        tf_image = self.transferfunction(xn)
         tf_image = tf_image[:3, :].T
-        tf_image = norm(tf_image)
+        tf_image = Normalize()(tf_image)
         col = ListedColormap(tf_image)
 
         # add a colorbar just based on the norm and colormap
 
-        cb = f.colorbar(cm.ScalarMappable(norm=norm, cmap=col), cax=cax)
+        cb = f.colorbar(cm.ScalarMappable(norm=cb_norm, cmap=col), cax=cax)
         cb.set_label('$\\rho$ [g cm$^{-3}$]')
 
         # make the plot
