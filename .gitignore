@@ -3,6 +3,7 @@
 *.pdf
 *.pyc
 *.mod
+*.npz
 *.so
 frames/
 *.egg-info/
@@ -10,3 +11,5 @@ build/
 notebooks/*.png
 notebooks/*.jpg
 /data/
+frame_*.jpg
+slice_*.png
