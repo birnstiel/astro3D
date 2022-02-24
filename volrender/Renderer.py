@@ -198,7 +198,7 @@ class Renderer(object):
         self._axd.collections.clear()
         self._fill = self._axd.fill_between(self._centers, rgba[-1], self._fillmax, fc='white', ec='k', zorder=0)
 
-    def render(self, phi=None, theta=None, update=True, transparent=False):
+    def render(self, phi=None, theta=None, update=True, transparent=False, invert=False, bg=0.0):
         """render the data from azimuth `phi`, elevation `theta`. Store in self.image
 
         Parameters
@@ -209,6 +209,10 @@ class Renderer(object):
             polar angle in degree
         update : bool
             if false, only re-render, no need to interpolate, default=True
+        transparent : bool
+            if True, there will be an alpha channel (not sure how well it works, however), default=False
+        invert : bool
+            if True, colors are inverted, default=False
         """
         if update:
             if phi is None:
@@ -231,8 +235,8 @@ class Renderer(object):
 
         x0 = self.transferfunction.x0.copy()
         colors = self.transferfunction.colors.copy()
-        bg = 0.0
-        if transparent:
+
+        if invert:
             colors[:, :3] = 1 - colors[:, :3]
 
         self.image = fmodule.render(self.data_obs,
@@ -241,9 +245,7 @@ class Renderer(object):
                                     colors,
                                     bg=bg)
 
-        if transparent:
-            self.image[:, :, :3] = 1.0 - self.image[:, :, :3]
-        else:
+        if not transparent:
             self.image = self.image[:, :, :3]
 
     def update(self, theta, phi, do_update=False):
@@ -262,7 +264,7 @@ class Renderer(object):
             self.im.set_data(Normalize()(self.image[:, :, :3]).data.transpose(1, 0, 2))
             plt.draw()
 
-    def plot(self, norm=None, diagnostics=False, L=None, alpha=None, invert=False):
+    def plot(self, norm=None, diagnostics=False, L=None, alpha=None):
         """Make a plot of the rendered image
 
         Parameters
@@ -273,6 +275,8 @@ class Renderer(object):
             if true, plot also diagnostics of the transfer function and image, by default False
         L : float, optional
             box length to rescale things, by default None
+        transparent : bool
+            if True, there will be an alpha channel (not sure how well it works, however), default=False
 
         Returns
         -------
@@ -281,7 +285,8 @@ class Renderer(object):
 
         if norm is None:
             print('no norm given assuming linear from 0 to 1')
-            norm = Normalize()
+            vmax = self.image[:, :, :3].max()
+            norm = Normalize(vmin=0, vmax=vmax, clip=True)
 
         if L is None:
             L = self.data.shape[0]
@@ -298,7 +303,9 @@ class Renderer(object):
             image = np.zeros([*image.shape[:-1], 4])
             image[:, :, :3] = self.image[:, :, :3]
             image[:, :, 3] = alpha
-        image[:, :, :3] = Normalize()(self.image[:, :, :3]).data
+
+        # normalize the image
+        image[:, :, :3] = norm(self.image[:, :, :3]).data
 
         ax.imshow(image.transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True, origin='lower')
 
@@ -313,9 +320,9 @@ class Renderer(object):
         # make a color map based on the transfer function
 
         x = np.linspace(0, 1, 200)
-        tf_image = self.transferfunction(x, invert=invert)
+        tf_image = self.transferfunction(x)
         tf_image = tf_image[:3, :].T
-        tf_image = Normalize()(tf_image)
+        tf_image = norm(tf_image)
         col = ListedColormap(tf_image)
 
         # add a colorbar just based on the norm and colormap
@@ -333,7 +340,7 @@ class Renderer(object):
             counts, edges = np.histogram(self.data.ravel(), 200, density=True)
             centers = 0.5 * (edges[1:] + edges[:-1])
 
-            rgba = self.transferfunction(centers, invert=invert)
+            rgba = self.transferfunction(centers)
 
             ax.plot(centers, counts, '0.5', ds='steps')
 

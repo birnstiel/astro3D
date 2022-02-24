@@ -20,7 +20,7 @@ _colors = np.array([
     [1., 0., 0.25, 0.1]])
 
 
-def render(data, phi, theta, transferfunction, transparent=False, N=None):
+def render(data, phi, theta, transferfunction, transparent=False, N=None, bg=0.0):
     """render the data from azimuth `phi`, elevation `theta` using the given transfer function.
 
     Parameters
@@ -69,7 +69,8 @@ def render(data, phi, theta, transferfunction, transparent=False, N=None):
     res = volrender.fmodule.render(data_obs,
                                    transferfunction.x0,
                                    transferfunction.sigma,
-                                   transferfunction.colors)
+                                   transferfunction.colors,
+                                   bg=bg)
 
     if not transparent:
         res = res[:, :, :3]
@@ -77,7 +78,7 @@ def render(data, phi, theta, transferfunction, transparent=False, N=None):
     return res
 
 
-def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None):
+def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.0):
     """Render a frame.
 
     Parameters
@@ -85,7 +86,7 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None):
     i : int
         integer value of the angle array set in the module.
 
-    data : array   
+    data : array  
         3d data set
 
     theta, phi: float
@@ -102,16 +103,16 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None):
         tf = volrender.TransferFunction(x0=_x0, sigma=_sigma, colors=_colors)
 
     # make the plot
-    f, ax = plt.subplots(figsize=(4, 4), dpi=150)
+    f, ax = plt.subplots(figsize=(4, 4), dpi=dpi)
     ax.axis('off')
 
-    image = render(data, phi, theta, tf, N=N)
+    image = render(data, phi, theta, tf, N=N, bg=bg)
     ax.imshow(Normalize()(image).data, origin='lower')
-    f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=200)
+    f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=dpi)
     plt.close(f)
 
 
-def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None):
+def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, dpi=200, bg=0.0):
     """Renders a movie for the given theta and phi arrays.
 
     Parameters
@@ -136,7 +137,7 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None):
 
     if ncpu == 1:
         for i, (_t, _p) in tqdm(enumerate(zip(theta, phi)), total=len(theta)):
-            makeframe(i, data, _t, _p, tf, temp_dir.name)
+            makeframe(i, data, _t, _p, tf, temp_dir.name, dpi=dpi, N=N, bg=bg)
 
     else:
         with Pool(ncpu) as p:
@@ -147,8 +148,11 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None):
                 theta,
                 phi,
                 repeat(tf),
-                repeat(temp_dir.name)), total=len(theta)),
+                repeat(temp_dir.name),
+                repeat(N),
+                repeat(dpi),
+                repeat(bg)), total=len(theta)),
                 chunksize=1))
 
-    subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 400k -pix_fmt yuv420p -r 20 -bufsize 1835k ' + fname).split())
+    subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 6400k -pix_fmt yuv420p -r 24 -bufsize 1835k ' + fname).split())
     temp_dir.cleanup()
