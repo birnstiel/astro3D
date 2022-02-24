@@ -25,30 +25,10 @@ do i = 1, nz
     image(:, :, 1) = rgba(:, :, 4) * rgba(:, :, 1) + (1 - rgba(:, :, 4)) * image(:, :, 1)
     image(:, :, 2) = rgba(:, :, 4) * rgba(:, :, 2) + (1 - rgba(:, :, 4)) * image(:, :, 2)
     image(:, :, 3) = rgba(:, :, 4) * rgba(:, :, 3) + (1 - rgba(:, :, 4)) * image(:, :, 3)
-    image(:, :, 4) = rgba(:, :, 4) * rgba(:, :, 4) + (1 - rgba(:, :, 4)) * image(:, :, 4)
+    image(:, :, 4) = image(:, :, 4) + rgba(:, :, 4)
 end do
 
 end subroutine render
-
-! subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
-!     implicit none
-
-!     INTEGER, INTENT(IN) :: nx, ny, n
-!     DOUBLE PRECISION, intent(in) :: x(nx, ny)
-!     DOUBLE PRECISION, intent(in), DIMENSION(n) :: x0, sigma
-!     DOUBLE PRECISION, intent(in), DIMENSION(n, 4) :: colors
-!     DOUBLE PRECISION, intent(out), DIMENSION(nx, ny, 4) ::  rgba
-    
-!     !vals = colors[..., :, :] * A[..., :, None] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
-!     ! all the "SPREAD"s do a broadcasting like np.newaxis in numpy to make the arrays of shape (nx, ny, n, 4)
-
-!     rgba = SUM( &
-!     & SPREAD(SPREAD(COLORS, 1, ny), 1, nx) * exp( &
-!     & - (SPREAD(SPREAD(SPREAD(x0, 1, ny), 1, nx), 4, 4) - SPREAD(SPREAD(x, 3, n), 4, 4))**2/ &
-!     &(2 * SPREAD(SPREAD(SPREAD(sigma, 1, ny), 1, nx), 4, 4)**2) &
-!     ), DIM=3)
-	
-! end subroutine transferfunction
 
 subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
     implicit none

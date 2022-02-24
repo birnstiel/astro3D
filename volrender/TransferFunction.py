@@ -60,6 +60,4 @@ class TransferFunction(object):
         vals = colors[..., :, :] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
 
         ret = vals.sum(-2).T
-        if invert:
-            ret = 1.0 - ret
         return ret
