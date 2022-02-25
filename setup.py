@@ -15,7 +15,12 @@ import pathlib
 
 PACKAGENAME = 'volrender'
 
-extensions = Extension(name=f'{PACKAGENAME}._fortran', sources=[f'{PACKAGENAME}/fortran.f90'])
+extension = Extension(
+    name=f'{PACKAGENAME}._fortran',
+    sources=[f'{PACKAGENAME}/fortran.f90'],
+    extra_f90_compile_args=["-fopenmp"],
+    extra_link_args=["-lgomp"]
+)
 
 # the directory where this setup.py resides
 
@@ -36,7 +41,7 @@ def read_version():
 
 if __name__ == "__main__":
 
-    def run_setup(extensions):
+    def run_setup(extension):
         setup(
             name=PACKAGENAME,
             description='simple volume rendering',
@@ -52,7 +57,7 @@ if __name__ == "__main__":
                 'volrender/fortran.f90',
             ]},
             include_package_data=True,
-            ext_modules=[extensions],
+            ext_modules=[extension],
             install_requires=[
                 'matplotlib',
                 'numpy'],
@@ -68,7 +73,13 @@ if __name__ == "__main__":
         )
 
     try:
-        run_setup(extensions)
+        run_setup(extension)
     except Exception:
-        warnings.warn('Setup with extensions did not work. Install fortran manually by issuing `make` in the diskwarp sub-folder')
-        run_setup([])
+        try:
+            warnings.warn('OpenMP/gfortran not available, will try without')
+            extension.extra_f90_compile_args = []
+            extension.extra_link_args = []
+            run_setup(extension)
+        except Exception:
+            warnings.warn('Setup with extensions did not work. Install fortran manually by issuing `make` in the diskwarp sub-folder')
+            run_setup([])
