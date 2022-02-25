@@ -1,4 +1,5 @@
 module fmodule
+USE OMP_LIB
 
     DOUBLE PRECISION :: fill_value=0d0
 
@@ -44,6 +45,8 @@ subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
     !vals = colors[..., :, :] * A[..., :, None] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
     ! all the "SPREAD"s do a broadcasting like np.newaxis in numpy to make the arrays of shape (nx, ny, n, 4)
 
+    !$OMP PARALLEL PRIVATE(dum) SHARED(rgba)
+    !$OMP DO
     do ix = 1, nx
         do iy = 1, ny
             dum = exp(-(x(ix, iy) - x0)**2 / (2 * sigma**2))
@@ -52,6 +55,8 @@ subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
             end do
         end do
     end do
+    !$OMP END DO
+    !$OMP END PARALLEL
 	
 end subroutine transferfunction
 
@@ -149,6 +154,8 @@ ix = 1
 iy = 1
 iz = 1
 
+!$OMP PARALLEL PRIVATE(ix, iy, iz, xd, yd, zd, c00,c01,c10,c11,c0,c1) SHARED(newvals)
+!$OMP DO
 do ip = 1, np
 
     ! find the left indices and return zero if any one is out of range
@@ -185,6 +192,8 @@ do ip = 1, np
     newvals(ip) = c0 * (1d0 - zd) + c1 * zd
 
 end do
+!$OMP END DO
+!$OMP END PARALLEL
 
 
 end subroutine interpolate
