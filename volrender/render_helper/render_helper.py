@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 # from scipy.interpolate import RegularGridInterpolator
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 import volrender
 
