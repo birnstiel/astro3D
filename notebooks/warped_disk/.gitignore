@@ -1,0 +1,13 @@
+amr_grid.inp
+dust_density.inp
+dust_temperature.dat
+dustopac.inp
+gas_velocity.inp
+image.out
+lines.inp
+microturbulence.inp
+numberdens_co.inp
+radmc3d.inp
+radmc3d.out
+stars.inp
+wavelength_micron.inp
