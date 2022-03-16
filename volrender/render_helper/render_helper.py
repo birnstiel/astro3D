@@ -1,5 +1,7 @@
 from itertools import repeat
-import tempfile
+import random
+import string
+import shutil
 from pathlib import Path
 import subprocess
 from multiprocessing.pool import Pool
@@ -112,7 +114,7 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.
     plt.close(f)
 
 
-def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, dpi=200, bg=0.0):
+def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, dpi=200, bg=0.0, cont=False):
     """Renders a movie for the given theta and phi arrays.
 
     Parameters
@@ -131,9 +133,21 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, d
         output file name, by default 'movie.mp4'
     N : int, optional
         resolution of the interpolated data, by default maximum of input dimension
+    dpi : int
+        resolution of frames in dots per inch
+    bg : float
+        background color, 1.0 is white, 0.0 is black, default 0.0
+    cont : str | bool
+        if False, will use temporary directory
+        if True will not delete directory,
+        if string, continue in the given directory, do not delete
     """
-
-    temp_dir = tempfile.TemporaryDirectory(dir='.', prefix='frames_')
+    if cont:
+        if cont == True:  # noqa
+            cont = 'frames'
+        temp_dir = TemporaryDirectory(name=cont, randomize=False, create=False, destroy=False)
+    else:
+        temp_dir = TemporaryDirectory(name='frames_', create=True, destroy=True)
 
     if ncpu == 1:
         for i, (_t, _p) in tqdm(enumerate(zip(theta, phi)), total=len(theta)):
@@ -155,4 +169,52 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, d
                 chunksize=1))
 
     subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 6400k -pix_fmt yuv420p -r 24 -bufsize 1835k ' + fname).split())
-    temp_dir.cleanup()
+    if not cont:
+        temp_dir.cleanup()
+
+
+class TemporaryDirectory():
+    def __init__(self, name, randomize=True, create=False, destroy=False):
+        """Temporary Directory class that needs not be temporary or can already exist.
+
+        Parameters
+        ----------
+        name : string or path
+            path of the folder; can use ~
+        randomize : bool, optional
+            if true, append random string, by default True
+        create : bool, optional
+            if True, will create folder if it does not exist, by default False
+        destroy : bool, optional
+            if true, will destroy folder when exiting context, by default False
+        """
+        name = (Path() / name).expanduser().name
+        if randomize:
+            name += '_' + ''.join(random.choices(string.ascii_letters, k=10))
+        self._path = Path(name)
+        self.create = create
+        self.destroy = destroy
+        self._check_dir()
+
+    def _check_dir(self):
+        if not self._path.is_dir():
+            if self.create:
+                self._path.mkdir()
+            else:
+                raise FileNotFoundError('directory not found. use `create` keyword to allow creation.')
+
+    @property
+    def name(self):
+        return self._path.name
+
+    def __enter__(self):
+        self._check_dir()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        if self.destroy:
+            self.cleanup()
+
+    def cleanup(self):
+        if self._path.is_dir():
+            shutil.rmtree(self._path)

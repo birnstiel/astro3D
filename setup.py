@@ -15,12 +15,18 @@ import pathlib
 
 PACKAGENAME = 'volrender'
 
-extension = Extension(
-    name=f'{PACKAGENAME}._fortran',
-    sources=[f'{PACKAGENAME}/fortran.f90'],
-    extra_f90_compile_args=["-fopenmp"],
-    extra_link_args=["-lgomp"]
-)
+extensions = [
+    Extension(
+        name=f'{PACKAGENAME}._fortran',
+        sources=[f'{PACKAGENAME}/fortran.f90'],
+        extra_f90_compile_args=["-fopenmp"],
+        extra_link_args=["-lgomp"],
+    ),
+    Extension(
+        name=f'{PACKAGENAME}._lic',
+        sources=[f'{PACKAGENAME}/lic.f90'],
+    ),
+]
 
 # the directory where this setup.py resides
 
@@ -57,7 +63,7 @@ if __name__ == "__main__":
                 'volrender/fortran.f90',
             ]},
             include_package_data=True,
-            ext_modules=[extension],
+            ext_modules=extensions,
             install_requires=[
                 'matplotlib',
                 'numpy'],
@@ -73,13 +79,14 @@ if __name__ == "__main__":
         )
 
     try:
-        run_setup(extension)
+        run_setup(extensions)
     except Exception:
         try:
             warnings.warn('OpenMP/gfortran not available, will try without')
-            extension.extra_f90_compile_args = []
-            extension.extra_link_args = []
-            run_setup(extension)
+            for extension in extensions:
+                extension.extra_f90_compile_args = []
+                extension.extra_link_args = []
+            run_setup(extensions)
         except Exception:
             warnings.warn('Setup with extensions did not work. Install fortran manually by issuing `make` in the diskwarp sub-folder')
             run_setup([])
