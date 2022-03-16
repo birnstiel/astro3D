@@ -6,7 +6,7 @@ from matplotlib.colors import LogNorm
 from matplotlib.colors import Normalize
 from scipy.interpolate import RegularGridInterpolator
 from PIL import Image, ImageOps
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 def makeslice(iz, z2, f_interp, coords, norm, path):
@@ -76,8 +76,8 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
         minimum value if norm is not given, by default None
     vmax : None or float, optional
         maximum value if norm is not given, by default None
-    iz : None or int, optional
-        if int is given, only this one slice index is produced, by default None
+    iz : None or int or int-array, optional
+        if int/int array is given, only this/these slice index/indices are produced, by default None
 
     Raises
     ------
@@ -139,7 +139,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                 file.unlink()
 
     if iz is not None:
-        z2 = [z2[iz]]
+        z2 = z2[np.array(iz, ndmin=1)]
 
     n = len(z2)
 

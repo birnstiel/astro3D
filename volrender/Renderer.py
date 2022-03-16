@@ -264,7 +264,9 @@ class Renderer(object):
             self.im.set_data(Normalize()(self.image[:, :, :3]).data.transpose(1, 0, 2))
             plt.draw()
 
-    def plot(self, cb_norm=None, diagnostics=False, L=None, alpha=None):
+    def plot(self, cb_norm=None, diagnostics=False, L=None, alpha=None,
+             sigma_clip=None, image_interpolation='bicubic', invert=False,
+             ax=None):
         """Make a plot of the rendered image
 
         Parameters
@@ -277,6 +279,9 @@ class Renderer(object):
             box length to rescale things, by default None
         transparent : bool
             if True, there will be an alpha channel (not sure how well it works, however), default=False
+        image_interpolation : str
+            passed to plt.imshow() as keyword `interpolation`
+
 
         Returns
         -------
@@ -292,11 +297,20 @@ class Renderer(object):
             L = self.data.shape[0]
 
         # make the plot
-        if diagnostics:
-            f, axs = plt.subplots(1, 2, figsize=(10, 4), dpi=200, gridspec_kw={'wspace': 0.3})
-            ax = axs[0]
+        if ax is None:
+            if diagnostics:
+                f, axs = plt.subplots(1, 2, figsize=(10, 4), dpi=200, gridspec_kw={'wspace': 0.3})
+                ax = axs[0]
+            else:
+                f, ax = plt.subplots(figsize=(4, 4), dpi=200)
         else:
-            f, ax = plt.subplots(figsize=(4, 4), dpi=200)
+            if diagnostics:
+                if not hasattr(ax, '__len__') or len(ax) != 2:
+                    raise ValueError('for diagnostics, you need to give two axes')
+                axs = ax
+                ax = axs[0]
+
+            f = ax.figure
 
         image = self.image.copy()
         if alpha is not None:
@@ -304,10 +318,20 @@ class Renderer(object):
             image[:, :, :3] = self.image[:, :, :3]
             image[:, :, 3] = alpha
 
+        if sigma_clip is not None:
+            max_val = image[:, :, :3].mean() + sigma_clip * image[:, :, :3].std()
+            image[:, :, :3] = np.clip(image[:, :, :3] / max_val, 0.0, 1.0)
+
         # normalize the image
         # image[:, :, :3] = norm(self.image[:, :, :3].ravel()).data.reshape(self.image[:, :, :3].shape)
 
-        ax.imshow(image.transpose(1, 0, 2), extent=[-L / 2, L / 2, -L / 2, L / 2], rasterized=True, origin='lower')
+        ax.imshow(
+            image.transpose(1, 0, 2),
+            extent=[-L / 2, L / 2, -L / 2, L / 2],
+            rasterized=True,
+            origin='lower',
+            interpolation=image_interpolation
+        )
 
         ax.set_xlabel('x [au]')
         ax.set_ylabel('y [au]')
@@ -324,9 +348,11 @@ class Renderer(object):
         else:
             xo = np.linspace(cb_norm.vmin, cb_norm.vmax, 200)
         xn = cb_norm(xo)
-        tf_image = self.transferfunction(xn)
+        tf_image = self.transferfunction(xn, invert=invert)
         tf_image = tf_image[:3, :].T
         tf_image = Normalize()(tf_image)
+        if invert:
+            tf_image = 1.0 - tf_image
         col = ListedColormap(tf_image)
 
         # add a colorbar just based on the norm and colormap
