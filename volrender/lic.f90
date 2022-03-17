@@ -346,6 +346,43 @@ module lic
 
     end subroutine gen_noise
 
+    ! =============================================================================
+
+    subroutine gen_noise_fast(nx, ny, noise, n_size)
+        implicit none
+        !f2py INTEGER OPTIONAL, INTENT(IN) :: n_size = 1
+        INTEGER, INTENT(IN) :: nx, ny, n_size
+        DOUBLE PRECISION, INTENT(OUT) :: noise(nx, ny)
+        DOUBLE PRECISION :: u, patch(3 * n_size + 1, 3 * n_size + 1)
+        INTEGER :: ix, iy, ix0, iy0, ixn, iyn, i, n_noise, n_patch
+        noise = 0d0
+        n_noise = int(nx * ny / n_size**2 / 4.0)
+
+        n_patch = 3 * n_size + 1
+    
+        do ix = 1, n_patch
+            do iy = 1, n_patch
+                patch(ix, iy) = exp(-((n_size + 1 - ix)**2 + (n_size + 1 - iy)**2) / (2.0 * n_size**2))
+            end do
+        end do
+
+        do i = 1, n_noise
+            call random_number(u)
+            ix0 = INT(1.0 + FLOOR(nx * u))
+            call random_number(u)
+            iy0 = INT(1.0 + FLOOR(ny * u))
+
+            do ix = 1, n_patch
+                do iy = 1, n_patch
+                    ixn = ix0 - n_size -1 + ix
+                    iyn = iy0 - n_size -1 + iy
+                    if ((ixn < 1) .or. (ixn > nx) .or. (iyn < 1) .or. (iyn > nx)) continue
+                    noise(ixn, iyn) = noise(ixn, iyn) + patch(ix, iy)
+                end do
+            end do
+        enddo
+
+    end subroutine gen_noise_fast
 
     ! =============================================================================
 
