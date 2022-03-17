@@ -30,10 +30,10 @@ module lic
 
                 integral = 0d0
                 do n = 1, 2 * n_steps - 2
-                    integral = integral + ds(1) * 0.5 * (values(n) + values(n+1))
+                    integral = integral + ds(n) * 0.5 * (values(n) + values(n+1))
                 enddo
 
-                output(ix, iy) = integral
+                output(ix, iy) = integral / SUM(ds)
             end do
         end do
 
@@ -348,15 +348,22 @@ module lic
 
     ! =============================================================================
 
-    subroutine gen_noise_fast(nx, ny, noise, n_size)
+    subroutine gen_noise_fast(nx, ny, noise, sigma, n_noise)
         implicit none
-        !f2py INTEGER OPTIONAL, INTENT(IN) :: n_size = 1
-        INTEGER, INTENT(IN) :: nx, ny, n_size
+        !f2py DOUBLE PRECISION, INTENT(IN) :: sigma = 1.0
+        !f2py INTEGER, INTENT(IN) :: n_noise = -1
+        INTEGER, INTENT(INOUT) :: n_noise
+        INTEGER, INTENT(IN) :: nx, ny
+        DOUBLE PRECISION, INTENT(IN) :: sigma
         DOUBLE PRECISION, INTENT(OUT) :: noise(nx, ny)
-        DOUBLE PRECISION :: u, patch(3 * n_size + 1, 3 * n_size + 1)
-        INTEGER :: ix, iy, ix0, iy0, ixn, iyn, i, n_noise, n_patch
+        DOUBLE PRECISION :: u, patch(3 * INT(CEILING(sigma)) + 1, 3 * INT(CEILING(sigma)) + 1)
+        INTEGER :: n_size
+        INTEGER :: ix, iy, ix0, iy0, ixn, iyn, i, n_patch
+        n_size = INT(CEILING(sigma))
         noise = 0d0
-        n_noise = int(nx * ny / n_size**2 / 4.0)
+        if (n_noise<1) then
+            n_noise = int(nx * ny / n_size**2 / 8.0)
+        endif
 
         n_patch = 3 * n_size + 1
     
