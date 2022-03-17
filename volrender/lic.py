@@ -58,11 +58,11 @@ def calc_2D_streamline(p, x, y, vel, data, length=1.0, n_steps=10, direction='fo
     """
     x0, y0 = p
     if direction == 'forward':
-        path, ipath, values = _fortran.calc_2D_streamline_forward(x0, y0, x, y, vel, data, length=length, n_steps=n_steps)
+        path, ipath, values = _fortran.calc_2d_streamline_forward(x0, y0, x, y, vel, data, length=length, n_steps=n_steps)
     elif direction == 'backward':
-        path, ipath, values = _fortran.calc_2D_streamline_forward(x0, y0, x, y, vel, data, length=-length, n_steps=n_steps)
+        path, ipath, values = _fortran.calc_2d_streamline_forward(x0, y0, x, y, vel, data, length=-length, n_steps=n_steps)
     elif direction == 'both':
-        path, ipath, values = _fortran.calc_2D_streamline_bothways(x0, y0, x, y, vel, data, length=length, n_steps=n_steps)
+        path, ipath, values = _fortran.calc_2d_streamline_bothways(x0, y0, x, y, vel, data, length=length, n_steps=n_steps)
     else:
         raise ValueError("direction needs to be 'forward' or 'both'")
     return path, ipath, values
@@ -94,14 +94,6 @@ def LIC_twostage(x, y, vel, generate_plot=False, **kwargs):
     length = abs(length / 2)
 
     print(f'length = {length:.2f}')
-    noise = gen_noise_fast(nx, ny)
-
-    noise_C = contrast_enhance(noise)
-    noise_CL = LIC(noise_C, x, y, vel, length=length)
-    noise_CLlC = 0.1 + 0.8 * contrast_enhance(_laplace(noise_CL))
-    noise_CLlCL = LIC(noise_CLlC, x, y, vel, length=length)
-    noise_CLlCLC = 0.1 + 0.8 * contrast_enhance(noise_CLlCL)
-
     noise = gen_noise_fast(nx, ny)
     noise_L = _Normalize()(LIC(noise, x, y, vel, length=length))
     noise_Ll = _laplace(noise_L)
