@@ -1,7 +1,7 @@
 __version__ = '0.0.1'
 
 from ._fortran import fmodule
-from ._lic import lic
+from . import lic
 
 from .Renderer import Renderer
 from .TransferFunction import TransferFunction
