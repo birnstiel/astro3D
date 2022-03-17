@@ -68,7 +68,7 @@ def calc_2D_streamline(p, x, y, vel, data, length=1.0, n_steps=10, direction='fo
     return path, ipath, values
 
 
-def LIC_twostage(x, y, vel, generate_plot=False):
+def LIC_twostage(x, y, vel, generate_plot=False, **kwargs):
     """computes a 2-stage LIC with some contrast enhancement
 
     Parameters
@@ -87,24 +87,34 @@ def LIC_twostage(x, y, vel, generate_plot=False):
     array
         2D LIC pattern
     """
+
     nx = len(x)
     ny = len(y)
-    noise = _laplace(gen_noise_fast(nx, ny))
+    length = kwargs.pop('length', min(x[-1] - x[0], y[-1] - y[0]) / 5.)
+    length = abs(length / 2)
 
-    noise_CE = contrast_enhance(noise)
-    noise_CE_LIC = LIC(noise_CE, x, y, vel)
-    noise_CE_LIC_LAPC = 0.1 + 0.8 * contrast_enhance(_laplace(noise_CE_LIC))
-    noise_CE_LIC_LAP_LIC = LIC(noise_CE_LIC_LAPC, x, y, vel)
-    noise_CE_LIC_LAP_LIC_CE = 0.1 + 0.8 * contrast_enhance(noise_CE_LIC_LAP_LIC)
+    print(f'length = {length:.2f}')
+    noise = gen_noise_fast(nx, ny)
+
+    noise_C = contrast_enhance(noise)
+    noise_CL = LIC(noise_C, x, y, vel, length=length)
+    noise_CLlC = 0.1 + 0.8 * contrast_enhance(_laplace(noise_CL))
+    noise_CLlCL = LIC(noise_CLlC, x, y, vel, length=length)
+    noise_CLlCLC = 0.1 + 0.8 * contrast_enhance(noise_CLlCL)
+
+    noise = gen_noise_fast(nx, ny)
+    noise_L = _Normalize()(LIC(noise, x, y, vel, length=length))
+    noise_Ll = _laplace(noise_L)
+    noise_LlL = _Normalize()(LIC(noise_Ll, x, y, vel, length=length))
+    noise_LlLC = contrast_enhance(noise_LlL)
 
     if generate_plot:
         imgs = [
             'noise',
-            'noise_CE',
-            'noise_CE_LIC',
-            'noise_CE_LIC_LAPC',
-            'noise_CE_LIC_LAP_LIC',
-            'noise_CE_LIC_LAP_LIC_CE',
+            'noise_L',
+            'noise_Ll',
+            'noise_LlL',
+            'noise_LlLC',
         ]
         n = len(imgs)
         f, ax = _plt.subplots(n, 2, figsize=(8, 2 * n), dpi=100)
@@ -112,13 +122,14 @@ def LIC_twostage(x, y, vel, generate_plot=False):
         _loc = locals()
 
         for i, name in enumerate(imgs):
-            ax[i, 0].imshow(_loc[name].T, cmap='gray', norm=_Normalize(0, 1))
+            cc = ax[i, 0].imshow(_loc[name].T, cmap='gray', norm=_Normalize())
+            _plt.colorbar(cc, ax=ax[i, 0])
             ax[i, 0].set_title(name)
             ax[i, 0].set_axis_off()
 
-            ax[i, 1].hist(_loc[name].ravel(), fc='k')
+            ax[i, 1].hist(_loc[name].ravel(), bins=20, fc='k')
 
-    return noise_CE_LIC_LAP_LIC_CE
+    return noise_LlLC
 
 
 def hsv_mix(scalar, noise, cmap='magma', norm=None):
