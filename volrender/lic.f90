@@ -16,26 +16,31 @@ module lic
         DOUBLE PRECISION, INTENT(OUT) :: output(nx, ny)
         INTEGER, INTENT(IN) :: n_steps
         
-        DOUBLE PRECISION :: ds(1), integral
-        DOUBLE PRECISION :: values(2 * n_steps - 1)
-        DOUBLE PRECISION :: path(2 * n_steps - 1, 2)
-        INTEGER :: ipath(2 * n_steps - 1, 2)
+        DOUBLE PRECISION :: ds(2 * n_steps), integral
+        DOUBLE PRECISION :: values(2 * n_steps + 1)
+        DOUBLE PRECISION :: path(2 * n_steps + 1, 2)
+        INTEGER :: ipath(2 * n_steps + 1, 2)
         INTEGER :: ix, iy, n
-        
+
+        OPEN(1, file='output.txt')
+
         do ix = 1, nx
             do iy = 1, ny
 
+                
                 call calc_2D_streamline_bothways(x(ix), y(iy), x, y, vel, data, path, ipath, values, length, n_steps, nx, ny)
-                ds = SQRT(SUM( (path(2:nx, :) - path(1:nx-1, :))**2, DIM=2))
+                ds = SQRT(SUM( (path(2:2 * n_steps + 1, :) - path(1:2 * n_steps, :))**2, DIM=2))
 
                 integral = 0d0
-                do n = 1, 2 * n_steps - 2
+                do n = 1, 2 * n_steps
                     integral = integral + ds(n) * 0.5 * (values(n) + values(n+1))
                 enddo
 
-                output(ix, iy) = integral / SUM(ds)
+                output(ix, iy) = integral / length
             end do
         end do
+
+        CLOSE(1)
 
     end subroutine flic
 
@@ -141,9 +146,9 @@ module lic
         DOUBLE PRECISION :: ds, val(1)
         DOUBLE PRECISION :: p(2)
         DOUBLE PRECISION :: data3(nx, ny, 1)
-        DOUBLE PRECISION, INTENT(OUT) :: path(2 * n_steps - 1, 2)
-        DOUBLE PRECISION, INTENT(OUT) :: values(2 * n_steps - 1)
-        INTEGER, INTENT(OUT) :: ipath(2 * n_steps - 1, 2)
+        DOUBLE PRECISION, INTENT(OUT) :: path(2 * n_steps + 1, 2)
+        DOUBLE PRECISION, INTENT(OUT) :: values(2 * n_steps + 1)
+        INTEGER, INTENT(OUT) :: ipath(2 * n_steps + 1, 2)
 
         data3(:, :, 1) = data
 
@@ -154,6 +159,9 @@ module lic
         call hunt(x, nx, x0, ix)
         call hunt(y, ny, y0, iy)
 
+        ix = max(1, min(nx, ix))
+        iy = max(1, min(ny, iy))
+
         ! go FORWARD half a length
 
         p(1) = x0
@@ -163,7 +171,7 @@ module lic
         ipath(n_steps + 1, 2) = iy
         values(n_steps + 1) = data(ix, iy)
 
-        do i = n_steps + 2, 2 * n_steps - 1
+        do i = n_steps + 2, 2 * n_steps + 1
             call rkstep(p, ds, x, y, vel, ix, iy, nx, ny)
             path(i, :) = p
             
@@ -180,7 +188,7 @@ module lic
         p(2) = y0
         ix = ipath(n_steps + 1, 1)
         iy = ipath(n_steps + 1, 2)
-        do i = n_steps + 2, 1, -1
+        do i = n_steps, 1, -1
             call rkstep(p, -ds, x, y, vel, ix, iy, nx, ny)
             path(i, :) = p
 
@@ -352,28 +360,31 @@ module lic
         implicit none
         !f2py DOUBLE PRECISION, INTENT(IN) :: sigma = 1.0
         !f2py INTEGER, INTENT(IN) :: n_noise = -1
-        INTEGER, INTENT(INOUT) :: n_noise
+        INTEGER, INTENT(IN) :: n_noise
         INTEGER, INTENT(IN) :: nx, ny
         DOUBLE PRECISION, INTENT(IN) :: sigma
         DOUBLE PRECISION, INTENT(OUT) :: noise(nx, ny)
-        DOUBLE PRECISION :: u, patch(3 * INT(CEILING(sigma)) + 1, 3 * INT(CEILING(sigma)) + 1)
-        INTEGER :: n_size
+        DOUBLE PRECISION :: u, patch(4 * INT(CEILING(sigma)) + 1, 4 * INT(CEILING(sigma)) + 1)
+        INTEGER :: n_sig, n_noise2
         INTEGER :: ix, iy, ix0, iy0, ixn, iyn, i, n_patch
-        n_size = INT(CEILING(sigma))
+        
         noise = 0d0
+        n_sig = INT(CEILING(sigma))
+        n_patch = 4 * n_sig + 1
+
         if (n_noise<1) then
-            n_noise = int(nx * ny / n_size**2 / 8.0)
+            n_noise2 = int(nx * ny / n_sig**2 / 8.0)
+        else
+            n_noise2 = n_noise
         endif
 
-        n_patch = 3 * n_size + 1
-    
         do ix = 1, n_patch
             do iy = 1, n_patch
-                patch(ix, iy) = exp(-((n_size + 1 - ix)**2 + (n_size + 1 - iy)**2) / (2.0 * n_size**2))
+                patch(ix, iy) = exp(-((2 * n_sig + 1 - ix)**2 + (2 * n_sig + 1 - iy)**2) / (2.0 * sigma**2))
             end do
         end do
 
-        do i = 1, n_noise
+        do i = 1, n_noise2
             call random_number(u)
             ix0 = INT(1.0 + FLOOR(nx * u))
             call random_number(u)
@@ -381,9 +392,9 @@ module lic
 
             do ix = 1, n_patch
                 do iy = 1, n_patch
-                    ixn = ix0 - n_size -1 + ix
-                    iyn = iy0 - n_size -1 + iy
-                    if ((ixn < 1) .or. (ixn > nx) .or. (iyn < 1) .or. (iyn > nx)) continue
+                    ixn = ix0 - (2 * n_sig + 1) + ix
+                    iyn = iy0 - (2 * n_sig + 1) + iy
+                    if ((ixn < 1) .or. (ixn > nx) .or. (iyn < 1) .or. (iyn > ny)) cycle
                     noise(ixn, iyn) = noise(ixn, iyn) + patch(ix, iy)
                 end do
             end do
