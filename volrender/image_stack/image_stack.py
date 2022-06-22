@@ -9,7 +9,7 @@ from PIL import Image, ImageOps
 from tqdm.auto import tqdm
 
 
-def makeslice(iz, z2, f_interp, coords, norm, path):
+def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, inverse=False):
     """
     iz : int
         slice index within `z2`
@@ -23,33 +23,75 @@ def makeslice(iz, z2, f_interp, coords, norm, path):
     norm : callable
         the normalization function that maps density to 0...1
 
+    bits : int
+        bit depth for output image. 1 should be enough, but 32 seems to be needed for fit.technology
+
     path : str | Path
         the path into which to store the images
+
+    inverse : bool
+        whether to print out the inverse as well
+
+    bg : array
+        background color
+
+    fg : array
+        foreground color
+
     """
     # update coordinates - only last entry changes
     n_y, n_x = coords.shape[:-1]
     copy = coords.copy()
     copy[:, :, -1] = z2[iz]
 
+    # the default foreground and background
+    old_fg = np.array([0, 0, 0, 255], dtype=np.uint8)
+    old_bg = np.array([255, 255, 255, 255], dtype=np.uint8)
+    bg = bg or [0, 0, 0, 255]
+    fg = fg or [255, 255, 255, 255]
+
     # interpolate
     new_layer = f_interp(copy.reshape([-1, 3])).reshape([n_x, n_y]).T
 
     # normalize, convert to grayscale image
     layer_norm = np.array(norm(new_layer))
-    im = Image.fromarray(np.uint8(255 - layer_norm * 255)).convert('1')
+    im = Image.fromarray(np.uint8(255 - layer_norm * 255))
 
-    # save as 1bit bitmap
-    im.save(path / f'slice_{iz:04d}.png', bits=1, optimize=True)
+    if bits == 1:
+        im = im.convert('1')
 
-    # save the inverted image as well
-    im_inv = im.convert('L')
-    im_inv = ImageOps.invert(im_inv)
-    im_inv = im_inv.convert('1')
-    im_inv.save(path / f'slice_transp_{iz:04d}.png', bits=1, optimize=True)
+        if inverse:
+            im_inv = im.convert('L')
+            im_inv = ImageOps.invert(im_inv)
+            im_inv = im_inv.convert('1')
+    elif bits == 32:
+        im = im.convert('1').convert('RGBA')
+
+        # replace colors
+        im_np = np.array(im)
+        masks = [np.all(im_np == col, -1) for col in [old_fg, old_bg]]
+
+        for col, mask in zip([fg, bg], masks):
+            col = np.array(col, dtype=np.uint8)
+            im_np = np.where(mask[:, :, None], col, im_np)
+        im = Image.fromarray(im_np.astype(np.uint8))
+
+        if inverse:
+            im_inv = im.convert('L')
+            im_inv = ImageOps.invert(im_inv)
+            im_inv = im_inv.convert('1').convert('RGBA')
+
+    else:
+        raise ValueError('bits needs to be 1 or 32')
+
+    # save as image and inverted image
+    im.save(path / f'slice_{iz:04d}.png', bits=bits, optimize=True)
+    if inverse:
+        im_inv.save(path / f'slice_transp_{iz:04d}.png', bits=bits, optimize=True)
 
 
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
-            norm=None, pool=None, vmin=None, vmax=None, iz=None):
+            norm=None, pool=None, vmin=None, vmax=None, iz=None, fg=None, bg=None, bits=32):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -78,6 +120,8 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
         maximum value if norm is not given, by default None
     iz : None or int or int-array, optional
         if int/int array is given, only this/these slice index/indices are produced, by default None
+
+    fg, bg, bits : see `make_slice`
 
     Raises
     ------
@@ -150,7 +194,11 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                 repeat(f_interp),
                 repeat(coords),
                 repeat(norm),
-                repeat(path)),
+                repeat(path),
+                repeat(bits),
+                repeat(fg),
+                repeat(bg),
+                ),
             total=n))
     else:
         with pool:
@@ -164,6 +212,9 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                             repeat(f_interp),
                             repeat(coords),
                             repeat(norm),
-                            repeat(path)
+                            repeat(path),
+                            repeat(bits),
+                            repeat(fg),
+                            repeat(bg),
                         ), total=n),
                     chunksize=4))
