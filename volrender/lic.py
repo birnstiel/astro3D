@@ -166,7 +166,7 @@ def hsv_mix(scalar, noise, cmap='magma', norm=None):
     return rgb2
 
 
-def pcolormesh_rgb(x, y, rgb, ax=None):
+def pcolormesh_rgb(x, y, rgb, ax=None, **kwargs):
     """Makes a pcolormesh plot given RGB data
 
     Parameters
@@ -180,6 +180,8 @@ def pcolormesh_rgb(x, y, rgb, ax=None):
     ax : axes, optional
         axes into which to plot, by default None
 
+    kwargs : are passed to pcolormesh
+
     Returns
     -------
     f, ax
@@ -190,6 +192,6 @@ def pcolormesh_rgb(x, y, rgb, ax=None):
     else:
         f = ax.figure
     col_len = rgb.shape[-1]
-    cc = ax.pcolormesh(x, y, rgb[:, :, 0].T, facecolors=rgb.transpose(1, 0, 2).reshape(-1, col_len) / 255)
+    cc = ax.pcolormesh(x, y, rgb[:, :, 0].T, facecolors=rgb.transpose(1, 0, 2).reshape(-1, col_len) / 255, **kwargs)
     cc.set_array(None)
     return f, ax

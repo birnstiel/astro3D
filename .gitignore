@@ -13,3 +13,4 @@ notebooks/*.jpg
 /data/
 frame_*.jpg
 slice_*.png
+*.zip
