@@ -1,5 +1,6 @@
 from itertools import repeat
 import random
+import os
 import string
 import shutil
 from pathlib import Path
@@ -80,7 +81,7 @@ def render(data, phi, theta, transferfunction, transparent=False, N=None, bg=0.0
     return res
 
 
-def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.0):
+def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.0, alpha=None):
     """Render a frame.
 
     Parameters
@@ -99,6 +100,12 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.
 
     N : int
         output resolution, see `render`
+
+
+    alpha : float or callable
+        will assign alpha, given the image data, for example:
+            def alpha(image):
+                return  1 - (image.sum(-1)/image.sum(-1).max())**8
     """
     # create the transfer function from the module attributes
     if tf is None:
@@ -109,12 +116,27 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.
     ax.axis('off')
 
     image = render(data, phi, theta, tf, N=N, bg=bg)
+
+    if alpha is not None:
+        if hasattr(alpha, '__call__'):
+            alpha = alpha(image)
+
+        image_a = np.zeros([*image.shape[:-1], 4])
+        image_a[:, :, :3] = image[:, :, :3]
+        image_a[:, :, 3] = alpha
+        image = image_a
+        transparent = True
+        suffix = '.png'
+    else:
+        transparent = False
+        suffix = '.jpg'
+
     ax.imshow(Normalize()(image).data, origin='lower')
-    f.savefig(Path(dir) / f'frame_{i:03d}.jpg', bbox_inches='tight', dpi=dpi)
+    f.savefig((Path(dir) / f'frame_{i:03d}').with_suffix(suffix), bbox_inches='tight', dpi=dpi, transparent=transparent)
     plt.close(f)
 
 
-def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, dpi=200, bg=0.0, cont=False):
+def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, dpi=200, bg=0.0, alpha=1.0, cont=False):
     """Renders a movie for the given theta and phi arrays.
 
     Parameters
@@ -141,6 +163,11 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, d
         if False, will use temporary directory
         if True will not delete directory,
         if string, continue in the given directory, do not delete
+
+    alpha : float or callable
+        will assign alpha, given the image data, for example:
+            def alpha(image):
+                return  1 - (image.sum(-1)/image.sum(-1).max())**8
     """
     if cont:
         if cont == True:  # noqa
@@ -151,7 +178,7 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, d
 
     if ncpu == 1:
         for i, (_t, _p) in tqdm(enumerate(zip(theta, phi)), total=len(theta)):
-            makeframe(i, data, _t, _p, tf, temp_dir.name, dpi=dpi, N=N, bg=bg)
+            makeframe(i, data, _t, _p, tf, temp_dir.name, dpi=dpi, N=N, bg=bg, alpha=alpha)
 
     else:
         with Pool(ncpu) as p:
@@ -165,10 +192,15 @@ def render_movie(data, theta, phi, ncpu=4, tf=None, fname='movie.mp4', N=None, d
                 repeat(temp_dir.name),
                 repeat(N),
                 repeat(dpi),
-                repeat(bg)), total=len(theta)),
+                repeat(bg),
+                repeat(alpha)), total=len(theta)),
                 chunksize=1))
 
-    subprocess.run(('ffmpeg -y -i ' + temp_dir.name + '/frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 6400k -pix_fmt yuv420p -r 24 -bufsize 1835k ' + fname).split())
+    if alpha is None:
+        subprocess.run(('ffmpeg -y -i ' + temp_dir.name + os.sep + 'frame_%03d.jpg -c:v libx264 -crf 15 -maxrate 6400k -pix_fmt yuv420p -r 24 -bufsize 1835k ' + fname).split())
+    else:
+        subprocess.run(('ffmpeg -y -i ' + temp_dir.name + os.sep + 'frame_%03d.png -c:v prores_ks -profile:v 5  -bits_per_mb 8000 -pix_fmt yuva422p10le out.mov ' + fname).split())
+
     if not cont:
         temp_dir.cleanup()
 
