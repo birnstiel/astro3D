@@ -40,9 +40,9 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, i
 
     """
     # update coordinates - only last entry changes
-    n_y, n_x = coords.shape[:-1]
-    copy = coords.copy()
-    copy[:, :, -1] = z2[iz]
+
+    _x, _y, _z = coords
+    _z = np.array([[[z2[iz]]]])
 
     # the default foreground and background
     old_fg = np.array([0, 0, 0, 255], dtype=np.uint8)
@@ -51,7 +51,7 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, i
     fg = fg or [255, 255, 255, 255]
 
     # interpolate
-    new_layer = f_interp(copy.reshape([-1, 3])).reshape([n_x, n_y]).T
+    new_layer = f_interp((_x, _y, _z))[:, :, 0]
 
     # normalize, convert to grayscale image
     layer_norm = np.array(norm(new_layer))
@@ -156,9 +156,9 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
 
     # calculate new grids
 
-    n_z = int(height * dpi_z / 2.54)
-    n_x = int(n_z / dpi_z * dpi_x)
-    n_y = int(n_z / dpi_z * dpi_y)
+    n_z = int(dpi_z * height / 2.54)
+    n_x = int(dpi_x * height / 2.54 * len(x) / len(z))
+    n_y = int(dpi_y * height / 2.54 * len(y) / len(z))
 
     n_x += n_x % 2  # add 1 to make it even if it isn't
     n_y += n_y % 2  # add 1 to make it even if it isn't
@@ -166,7 +166,8 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     x2 = np.linspace(0, data.shape[0] - 1, n_x)
     y2 = np.linspace(0, data.shape[1] - 1, n_y)
     z2 = np.linspace(0, data.shape[2] - 1, n_z)
-    coords = np.concatenate((np.meshgrid(x2, y2, z2[0])), axis=-1)
+    _x, _y, _z = np.meshgrid(x2, y2, z2[0], sparse=True)
+    coords = (_x, _y, _z)
 
     print(f'  original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
     print(f'interpoation to: {n_x} x {n_y} x {n_z}')
