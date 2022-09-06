@@ -13,7 +13,7 @@ from scipy.interpolate import RegularGridInterpolator
 from .TransferFunction import TransferFunction
 
 try:
-    from volrender import fmodule
+    from astro3d import fmodule
     fmodule_available = True
 except Exception:
     warnings.warn('Fortran routine unavailable, code will be slightly slower')

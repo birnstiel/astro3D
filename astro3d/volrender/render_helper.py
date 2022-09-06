@@ -13,7 +13,7 @@ from matplotlib.colors import Normalize
 # from scipy.interpolate import RegularGridInterpolator
 from tqdm.auto import tqdm
 
-import volrender
+import astro3d
 
 _x0 = [0.1, 0.4, 0.92]
 _sigma = [0.03, 0.05, 0.03]
@@ -34,7 +34,7 @@ def render(data, phi, theta, transferfunction, transparent=False, N=None, bg=0.0
         azimuthal angle in degree
     theta : float
         polar angle in degree
-    transferfunction : `volrender.volrender.Transferfunction`
+    transferfunction : `astro3d.volrender.Transferfunction`
         the transfer function returning a RGBA value for each input.
 
     N : int
@@ -67,13 +67,13 @@ def render(data, phi, theta, transferfunction, transparent=False, N=None, bg=0.0
 
     # Interpolate onto Camera Grid
     # data_obs = f_interp(qi).reshape((n_max, n_max, n_max))
-    data_obs = volrender.fmodule.interpolate(x, y, z, data, qi).reshape((N, N, N))
+    data_obs = astro3d.fmodule.interpolate(x, y, z, data, qi).reshape((N, N, N))
 
-    res = volrender.fmodule.render(data_obs,
-                                   transferfunction.x0,
-                                   transferfunction.sigma,
-                                   transferfunction.colors,
-                                   bg=bg)
+    res = astro3d.fmodule.render(data_obs,
+                                 transferfunction.x0,
+                                 transferfunction.sigma,
+                                 transferfunction.colors,
+                                 bg=bg)
 
     if not transparent:
         res = res[:, :, :3]
@@ -109,7 +109,7 @@ def makeframe(i, data, theta, phi, tf=None, dir='frames', N=None, dpi=300, bg=0.
     """
     # create the transfer function from the module attributes
     if tf is None:
-        tf = volrender.TransferFunction(x0=_x0, sigma=_sigma, colors=_colors)
+        tf = astro3d.TransferFunction(x0=_x0, sigma=_sigma, colors=_colors)
 
     # make the plot
     f, ax = plt.subplots(figsize=(4, 4), dpi=dpi)

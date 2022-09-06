@@ -1,5 +1,5 @@
 """
-Setup file for package `volrender`.
+Setup file for package `astro3d`.
 """
 import setuptools  # noqa
 import sys
@@ -13,7 +13,7 @@ except ImportError:
     sys.exit(1)
 import pathlib
 
-PACKAGENAME = 'volrender'
+PACKAGENAME = 'astro3d'
 
 extensions = [
     Extension(
@@ -60,7 +60,7 @@ if __name__ == "__main__":
             license='GPLv3',
             packages=setuptools.find_packages(),
             package_data={PACKAGENAME: [
-                'volrender/fortran.f90',
+                'astro3d/fortran.f90',
             ]},
             include_package_data=True,
             ext_modules=extensions,
@@ -71,9 +71,9 @@ if __name__ == "__main__":
             zip_safe=False,
             entry_points={
                 'console_scripts': [
-                    'volrender=volrender.CLI:volrender_CLI',
-                    'render_movie=volrender.CLI:render_movie_CLI',
-                    'image_stack=volrender.CLI:image_stack_CLI',
+                    'volrender=astro3d.CLI:volrender_CLI',
+                    'render_movie=astro3d.CLI:render_movie_CLI',
+                    'image_stack=astro3d.CLI:image_stack_CLI',
                 ],
             }
         )

@@ -60,6 +60,52 @@ subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
 	
 end subroutine transferfunction
 
+! FLOYD-STEINBERG DITHERING
+!
+! dithers the input image of shape nx, ny to the same-shape output image.
+! input should be double precision with values between 0.0 and 1.0
+! output will only have 0.0 or 1.0
+subroutine dither(input, output, nx, ny)
+    integer, intent(in) :: nx, ny
+    double precision, intent(in) :: input(nx, ny)
+    double precision, intent(out) :: output(nx, ny)
+    
+    integer :: ix, iy, new
+    double precision :: error, old
+    
+    
+    output = input
+    
+    do iy=1, ny
+        do ix=1, nx
+            old = output(ix, iy)
+            if (old > 0.5) then
+                new = 1.0
+            else
+                new = 0.0
+            endif
+            output(ix, iy) = new
+            error = old - new
+    
+            if (ix < nx) then
+                output(ix+1, iy) = output(ix+1, iy) + error * 0.4375 ! 7/16 
+            endif 
+            if (iy < ny) then
+                if (ix > 1) then
+                    output(ix-1, iy+1) = output(ix-1, iy+1) + error * 0.1875 ! 3/16
+                endif
+                output(ix, iy+1) = output(ix, iy+1) + error * 0.3125 ! 5/16 
+                if (ix < nx) then
+                    output(ix+1, iy+1) = output(ix+1, iy+1) + error * 0.0625 ! 1 / 16
+                endif
+            endif
+        end do
+    end do
+                    
+    end subroutine dither
+    
+
+
 
 ! _____________________________________________________________________________
 ! this routine is for a correlated search within an ordered table:

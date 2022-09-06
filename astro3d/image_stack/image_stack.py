@@ -1,16 +1,22 @@
 from pathlib import Path
 from itertools import repeat
+import imageio
 
 import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.colors import Normalize
 from scipy.interpolate import RegularGridInterpolator
-from PIL import Image, ImageOps
 from tqdm.auto import tqdm
+from .. import fmodule
 
 
-def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, inverse=False):
+def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None):
     """
+    Prints out one slice of the image (index `iz` within grid `z2`) and stores it as
+    a file `slice_{iz:04d}.png` in the folder `path`. Black and white in the image can be
+    replace by `fg` and `bg` which are RGBA colors such as `[255, 255, 255, 255]`.
+
+
     iz : int
         slice index within `z2`
 
@@ -29,9 +35,6 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, i
     path : str | Path
         the path into which to store the images
 
-    inverse : bool
-        whether to print out the inverse as well
-
     bg : array
         background color
 
@@ -40,54 +43,25 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None, i
 
     """
     # update coordinates - only last entry changes
-
     _x, _y, _z = coords
     _z = np.array([[[z2[iz]]]])
 
-    # the default foreground and background
-    old_fg = np.array([0, 0, 0, 255], dtype=np.uint8)
-    old_bg = np.array([255, 255, 255, 255], dtype=np.uint8)
-    bg = bg or [0, 0, 0, 255]
-    fg = fg or [255, 255, 255, 255]
-
-    # interpolate
-    new_layer = f_interp((_x, _y, _z))[:, :, 0]
+    # interpolate: note that we transpose as this is how the image will be safed
+    new_layer = f_interp((_x, _y, _z))[:, :, 0].T
 
     # normalize, convert to grayscale image
     layer_norm = np.array(norm(new_layer))
-    im = Image.fromarray(np.uint8(255 - layer_norm * 255))
+    layer_dither = fmodule.dither(layer_norm)
 
-    if bits == 1:
-        im = im.convert('1')
+    # set the foreground and background
+    fg = fg or [0, 0, 0, 255]
+    bg = bg or [255, 255, 255, 255]
 
-        if inverse:
-            im_inv = im.convert('L')
-            im_inv = ImageOps.invert(im_inv)
-            im_inv = im_inv.convert('1')
-    elif bits == 32:
-        im = im.convert('1').convert('RGBA')
+    # replace colors
+    im = np.where((layer_dither == 0.0)[:, :, None], bg, fg)
 
-        # replace colors
-        im_np = np.array(im)
-        masks = [np.all(im_np == col, -1) for col in [old_fg, old_bg]]
-
-        for col, mask in zip([fg, bg], masks):
-            col = np.array(col, dtype=np.uint8)
-            im_np = np.where(mask[:, :, None], col, im_np)
-        im = Image.fromarray(im_np.astype(np.uint8))
-
-        if inverse:
-            im_inv = im.convert('L')
-            im_inv = ImageOps.invert(im_inv)
-            im_inv = im_inv.convert('1').convert('RGBA')
-
-    else:
-        raise ValueError('bits needs to be 1 or 32')
-
-    # save as image and inverted image
-    im.save(path / f'slice_{iz:04d}.png', bits=bits, optimize=True)
-    if inverse:
-        im_inv.save(path / f'slice_transp_{iz:04d}.png', bits=bits, optimize=True)
+    # save as png
+    imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(im))
 
 
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
@@ -157,8 +131,8 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     # calculate new grids
 
     n_z = int(dpi_z * height / 2.54)
-    n_x = int(dpi_x * height / 2.54 * len(x) / len(z))
-    n_y = int(dpi_y * height / 2.54 * len(y) / len(z))
+    n_x = int(n_z * len(x) / len(z) / dpi_z * dpi_x)
+    n_y = int(n_z * len(y) / len(z) / dpi_z * dpi_y)
 
     n_x += n_x % 2  # add 1 to make it even if it isn't
     n_y += n_y % 2  # add 1 to make it even if it isn't
@@ -166,11 +140,12 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     x2 = np.linspace(0, data.shape[0] - 1, n_x)
     y2 = np.linspace(0, data.shape[1] - 1, n_y)
     z2 = np.linspace(0, data.shape[2] - 1, n_z)
-    _x, _y, _z = np.meshgrid(x2, y2, z2[0], sparse=True)
+    _x, _y, _z = np.meshgrid(x2, y2, z2[0], sparse=True, indexing='ij')
     coords = (_x, _y, _z)
 
     print(f'  original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
     print(f'interpoation to: {n_x} x {n_y} x {n_z}')
+    print(f'print size: {n_x * 2.54 / dpi_x:.2f} x {n_y * 2.54 / dpi_y:.2f} x {n_z *2.54 / dpi_z:.2f} cm')
     print(f'saving into {output_dir}')
     path = Path(output_dir)
 

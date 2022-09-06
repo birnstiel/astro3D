@@ -6,9 +6,9 @@ from matplotlib.colors import LogNorm
 import matplotlib.pyplot as plt
 import numpy as np
 
-from volrender import Renderer
+from .volrender.Renderer import Renderer
 from .image_stack import process
-from .render_helper import render_movie
+from .volrender import render_movie
 
 
 def volrender_CLI():
@@ -77,7 +77,7 @@ def image_stack_CLI():
 
 def render_movie_CLI():
     RTHF = argparse.RawTextHelpFormatter
-    PARSER = argparse.ArgumentParser(description='simple volume rendering example', formatter_class=RTHF)
+    PARSER = argparse.ArgumentParser(description='simple volume rendering to movie', formatter_class=RTHF)
     PARSER.add_argument('-f', '--field', help='if dictionary based npz file is used, use this field from the file', type=str, default='arr_0')
     PARSER.add_argument('filename', help='which .npz file to read', type=str)
     PARSER.add_argument('-o', '--output', help='how to name output file', type=str, default='movie.mp4')

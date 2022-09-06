@@ -3,11 +3,12 @@ __version__ = '0.0.1'
 from ._fortran import fmodule
 from . import lic
 
-from .Renderer import Renderer
-from .TransferFunction import TransferFunction
-from .render_helper import render_movie
+from . import volrender
+from .volrender import TransferFunction
+from .volrender import render_movie
 
 __all__ = [
+    'volrender',
     'fmodule',
     'lic',
     'Renderer',
