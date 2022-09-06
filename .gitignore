@@ -1,5 +1,4 @@
 .ipynb_checkpoints/
-*.mp4
 *.pdf
 *.pyc
 *.mod
@@ -10,7 +9,9 @@ frames/
 build/
 notebooks/*.png
 notebooks/*.jpg
-/data/
+notebooks/data/
+notebooks/output/
 frame_*.jpg
 slice_*.png
 *.zip
+__pycache__/
