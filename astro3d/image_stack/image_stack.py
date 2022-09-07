@@ -1,12 +1,14 @@
 from pathlib import Path
 from itertools import repeat
 import imageio
+from multiprocessing import Pool, cpu_count
 
 import numpy as np
 from matplotlib.colors import LogNorm
 from matplotlib.colors import Normalize
 from scipy.interpolate import RegularGridInterpolator
 from tqdm.auto import tqdm
+
 from .. import fmodule
 
 
@@ -194,3 +196,43 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                             repeat(bg),
                         ), total=n),
                     chunksize=4))
+
+
+def _sum_imgs(args):
+    "helper function for image_sum"
+    low, high, files, nx, ny = args
+    summed_image = np.zeros([ny, nx])
+
+    for file in files[low:high + 1]:
+        summed_image += np.array(imageio.imread(file).sum(-1) < 3 * 255, dtype=int).T
+    return summed_image
+
+
+def image_sum(files, n_proc=None):
+    """Sums up the number of filled pixels in the given files
+
+    Parameters
+    ----------
+    files : list
+        list of files to sum up
+    n_proc : int, optional
+        number of processors to use, by default None
+
+    Returns
+    -------
+    array
+        sum of filled pixels in the given files
+    """
+
+    nx, ny = imageio.imread(files[0]).shape[:2]
+
+    # get a pool
+    n_proc = n_proc or cpu_count()
+    p = Pool(n_proc)
+
+    # prepare the arguments
+    r = np.arange(0, len(files), len(files) // n_proc)
+    r[-1] = len(files)
+    args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
+
+    return sum(p.map(_sum_imgs, args))
