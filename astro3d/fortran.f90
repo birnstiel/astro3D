@@ -103,6 +103,63 @@ subroutine dither(input, output, nx, ny)
     end do
                     
     end subroutine dither
+
+
+
+! 3-density FLOYD-STEINBERG DITHERING
+!
+! dither the input densities of shape nx, ny to the same-shape output image that is dithered, 
+! containing just one color in each pixel.
+! input should be double precision with values between 0.0 and 1.0
+! output will only have 0.0 or 1.0
+subroutine dither_colors(input, output, nx, ny, nc)
+    integer, intent(in) :: nx, ny
+    double precision, intent(in) :: input(nx, ny, nc)
+    double precision, intent(out) :: output(nx, ny, nc)
+    
+    integer :: ix, iy, new(nc), idx(1)
+    double precision :: error(nc), old(nc)
+    
+    
+    output = input
+    
+    do iy=1, ny
+        do ix=1, nx
+            old = output(ix, iy, :)
+            new = 0.0
+            ! we first put all over the threshold to 1.0
+            WHERE(old > 0.5) new = 1.0
+
+            ! but there can be only one, so if there are more, we take the larges
+            if (sum(new) > 1.0) then
+                new = 0.0
+                idx = maxloc(old)
+                if (old(idx(1)) > 0.5) then
+                    new(idx(1)) = 1.0
+                endif
+            endif
+
+            ! copy over and define error
+            output(ix, iy, :) = new
+            error = old - new
+
+            ! distribute error to neighbors
+            if (ix < nx) then
+                output(ix+1, iy, :) = output(ix+1, iy, :) + error * 0.4375 ! 7/16 
+            endif 
+            if (iy < ny) then
+                if (ix > 1) then
+                    output(ix-1, iy+1, :) = output(ix-1, iy+1, :) + error * 0.1875 ! 3/16
+                endif
+                output(ix, iy+1, :) = output(ix, iy+1, :) + error * 0.3125 ! 5/16 
+                if (ix < nx) then
+                    output(ix+1, iy+1, :) = output(ix+1, iy+1, :) + error * 0.0625 ! 1 / 16
+                endif
+            endif
+        end do
+    end do
+                        
+end subroutine dither_colors
     
 
 

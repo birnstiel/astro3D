@@ -236,3 +236,40 @@ def image_sum(files, n_proc=None):
     args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
 
     return sum(p.map(_sum_imgs, args))
+
+
+def color_replace(im, orig_color, repl_col, f=[1]):
+    """replaces `orig_color` with `repl_col`.
+
+    Several colors can be given, then the keyword `f` will assign the relative frequency"""
+
+    # all pixels with that mask
+    color_mask = np.all(im == np.array(orig_color)[None, None, :], -1)
+
+    repl_cols = np.array(repl_col, ndmin=2)
+    fs = np.array(f, ndmin=1)
+
+    assert abs(sum(fs)) - 1 < 1e-8, 'the f factors need to sum to 1.'
+    assert np.min(fs) >= 0 and np.max(fs) <= 1.0, 'f factors need to be between 0 and 1 (including)'
+
+    # sort in ascending frequency
+    i_sort = fs.argsort()
+    repl_cols = repl_cols[i_sort, :]
+    fs = np.hstack((0.0, np.cumsum(fs[i_sort])))
+
+    n_col = repl_cols.shape[0]
+
+    if n_col == 1:
+        im_repl = np.where(color_mask[:, :, None], repl_cols[0], im)
+    else:
+        rand_idx = np.random.rand(*color_mask.shape)
+        im_repl = im.copy()
+
+        for ic in range(n_col):
+            im_repl = np.where((
+                color_mask &
+                (fs[ic] <= rand_idx) &
+                (rand_idx <= fs[ic + 1])
+            )[:, :, None], repl_cols[ic, :], im_repl)
+
+    return im_repl
