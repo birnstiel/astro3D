@@ -11,8 +11,14 @@ from tqdm.auto import tqdm
 
 from .. import fmodule
 
+# define the rigid Vero™ colors
+VeroT_sRGB = np.array([255, 255, 255]) / 255
+VeroC_sRGB = np.array([29, 85, 111]) / 255
+VeroM_sRGB = np.array([149, 39, 87]) / 255
+VeroY_sRGB = np.array([192, 183, 52]) / 255
 
-def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None):
+
+def makeslice(iz, z2, f_interp, coords, norm, path, fg=None, bg=None):
     """
     Prints out one slice of the image (index `iz` within grid `z2`) and stores it as
     a file `slice_{iz:04d}.png` in the folder `path`. Black and white in the image can be
@@ -30,9 +36,6 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None):
 
     norm : callable
         the normalization function that maps density to 0...1
-
-    bits : int
-        bit depth for output image. 1 should be enough, but 32 seems to be needed for fit.technology
 
     path : str | Path
         the path into which to store the images
@@ -66,8 +69,120 @@ def makeslice(iz, z2, f_interp, coords, norm, path, bits=32, fg=None, bg=None):
     imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(im))
 
 
+def makeslice_color(iz, z2, f_interp, coords, norm, path,
+                    levels=[0.15, 0.5, 0.8], sigmas=[0.3, 0.1, 0.3], fill=[1.0, 1.0, 1.0],
+                    colors=None, f=None, bg=[1.0, 1.0, 1.0]):
+    """
+    Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
+    a file `slice_{iz:04d}.png` in the folder `path`.
+
+    Several regions in density-space can be selected, each is defined by its entry in:
+    - `levels` = the position in the normalized density (=when `norm` is applied to the
+       density) where this color is applied
+    - `sigmas` = the width of the gaussian region in normalized density
+    - `fill` = the filling factors of the density. If a normalized density value is exactly
+       equal to an entry in `levels`, this cell will be always filled if its value in `fill`
+       is 1. If it is 0.5, it will be filled with approximately 50% probablility.
+       This is used to make the colored regions less opaque.
+    - `colors` the color with which those regions are filled. The color needs to be given as a
+       fractional abundance of the materials used in the print. This is usually VeroCyan,
+       VeroMagenta, VeroYellow.
+
+    Note: the normalized density values are derived by calling `norm(density)` which should
+    map the density values to [0 ... 1]. To do the inverse, for example to compute which
+    density corresponds to a normalized value of 0.4, one can use the inverse of the norm
+    like this: `rho = norm.inverse(0.4)` or `rho = norm.inverse([0.4, 0.6]).data` for an array.
+
+    iz : int
+        slice index within `z2`
+
+    z2 : array
+        the new vertical coordinate array
+
+    f_inter : callable
+        the interpolation function of (x,y,z)
+
+    norm : callable
+        the normalization function that maps density to 0...1
+
+    path : str | Path
+        the path into which to store the images
+
+    levels : array
+        array of `N_colors` float entries that define the density values of each color
+
+    sigmas : array
+        array of `N_colors` floats that describe the density width
+
+    fill : array
+        array of  `N_colors` floats that describe the filling factor of each color
+
+    colors : TBD
+        material mixing ratios: each density will be displayed as one color, but each color
+        might be a mix of several materials, for example a 50/50 mix of VeroYellow™ and VeroCyan™
+        will give a dark green.
+
+        After each density-level is dithered (i.e. three images that have no overlapping filled pixels),
+        each density can be translated to a mix of materials to create material-mixed colors.
+
+        Thus every component needs a list of colors, even if there is just one color. If less colors are given,
+        then the remaining components are not replaced.
+
+    f : list
+        a list of mixing fractions for each color.
+        - If `colors` is for example `[[VeroCyan]]`, then `f` should be `[[1.0]]` which means
+          that the entire first component is VeroCyan.
+        - If `colors` is `[[VeroCyan, VeroMagenta], [VeroCyan]]`, `f` could look like `[[0.2, 0.8], [1.0]]`
+        which means that the first component is 20% Cyan, 80% Magenta, and the second component is 100% Cyan.
+
+    bg : array
+        The background color, usually white: `[1, 1, 1]`
+
+    """
+
+    path = Path(path)
+
+    # update coordinates - only last entry changes
+    _x, _y, _z = coords
+    _z = np.array([[[z2[iz]]]])
+
+    # interpolate: note that we transpose as this is how the image will be safed
+    new_layer = f_interp((_x, _y, _z))[:, :, 0].T
+
+    # normalize data
+    layer_norm = np.array(norm(new_layer))
+
+    # compute the different density contours
+    dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
+    color_density = 1 / (1 + dist_sq) * fill
+
+    # create the dithered images
+    layer_dithered = fmodule.dither_colors(color_density * fill)
+
+    # handle colors and f
+    if colors is None:
+        old_colors = np.eye(len(levels))
+    if f is None:
+        f = np.ones(len(levels))
+
+    # now replace the colors
+    im = []
+
+    old_colors = np.eye(len(levels))
+
+    for col_o, col_n, _f in zip(old_colors, colors, f):
+        im += [color_replace(layer_dithered, col_o, col_n, f=_f)]
+
+    im += [color_replace(layer_dithered, np.zeros(old_colors.shape[1]), bg)]
+
+    im = np.array(im).sum(0)
+
+    # save as png
+    imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(255 * im))
+
+
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
-            norm=None, pool=None, vmin=None, vmax=None, iz=None, fg=None, bg=None, bits=32):
+            norm=None, pool=None, vmin=None, vmax=None, iz=None, fg=None, bg=None):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -97,7 +212,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     iz : None or int or int-array, optional
         if int/int array is given, only this/these slice index/indices are produced, by default None
 
-    fg, bg, bits : see `make_slice`
+    fg, bg : see `make_slice`
 
     Raises
     ------
@@ -173,7 +288,6 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                 repeat(coords),
                 repeat(norm),
                 repeat(path),
-                repeat(bits),
                 repeat(fg),
                 repeat(bg),
                 ),
@@ -191,7 +305,6 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                             repeat(coords),
                             repeat(norm),
                             repeat(path),
-                            repeat(bits),
                             repeat(fg),
                             repeat(bg),
                         ), total=n),
@@ -238,12 +351,22 @@ def image_sum(files, n_proc=None):
     return sum(p.map(_sum_imgs, args))
 
 
-def color_replace(im, orig_color, repl_col, f=[1]):
+def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     """replaces `orig_color` with `repl_col`.
 
-    Several colors can be given, then the keyword `f` will assign the relative frequency"""
+    If a list of colors and a list of `f`s are given, then `orig_color``
+    is replaced with that mix of colors.
 
-    # all pixels with that mask
+    if `inplace` is `True`, then we are replacing colors in an image of matching shape
+    and could leave the rest of the image as it is. This could replace a single
+    color in the image with another color.
+
+    if `inplace` is false, the shape does not need to match, for example if we want to construct an
+    image from more or less than 3 layers. For 2 layers, the input information is `(nx, ny, 2)` but
+    the image should be `(nx, ny, 3)`, for example.
+    """
+
+    # all pixels matching that color with that mask
     color_mask = np.all(im == np.array(orig_color)[None, None, :], -1)
 
     repl_cols = np.array(repl_col, ndmin=2)
@@ -251,6 +374,9 @@ def color_replace(im, orig_color, repl_col, f=[1]):
 
     assert abs(sum(fs)) - 1 < 1e-8, 'the f factors need to sum to 1.'
     assert np.min(fs) >= 0 and np.max(fs) <= 1.0, 'f factors need to be between 0 and 1 (including)'
+
+    if not inplace:
+        im = np.zeros([im.shape[0], im.shape[1], len(repl_cols[0])])
 
     # sort in ascending frequency
     i_sort = fs.argsort()
@@ -260,7 +386,7 @@ def color_replace(im, orig_color, repl_col, f=[1]):
     n_col = repl_cols.shape[0]
 
     if n_col == 1:
-        im_repl = np.where(color_mask[:, :, None], repl_cols[0], im)
+        im_repl = np.where(color_mask[:, :, None], repl_cols[0, None, None], im)
     else:
         rand_idx = np.random.rand(*color_mask.shape)
         im_repl = im.copy()
