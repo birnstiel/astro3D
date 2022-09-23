@@ -321,7 +321,19 @@ def _sum_imgs(args):
     return summed_image
 
 
-def image_sum(files, n_proc=None):
+def _sum_color(args):
+    "helper function for image_sum summing up only a specific color"
+    low, high, files, nx, ny, color = args
+    summed_image = np.zeros([ny, nx])
+
+    color = np.array(color, ndmin=1)
+
+    for file in files[low:high + 1]:
+        summed_image += np.array((imageio.imread(file) == color[None, None, :]).all(-1), dtype=int).T
+    return summed_image
+
+
+def image_sum(files, n_proc=None, color=None):
     """Sums up the number of filled pixels in the given files
 
     Parameters
@@ -330,6 +342,9 @@ def image_sum(files, n_proc=None):
         list of files to sum up
     n_proc : int, optional
         number of processors to use, by default None
+    color : array | None
+        if not None, it should be one of the colors in the image
+        the function will sum up only the pixels filled with that color
 
     Returns
     -------
@@ -346,9 +361,23 @@ def image_sum(files, n_proc=None):
     # prepare the arguments
     r = np.arange(0, len(files), len(files) // n_proc)
     r[-1] = len(files)
-    args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
 
-    return sum(p.map(_sum_imgs, args))
+    if color is None:
+        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
+        fct = _sum_imgs
+    else:
+        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny), repeat(color)))
+        fct = _sum_color
+
+    return sum(p.map(fct, args))
+
+
+def check_colors(im):
+    colors = np.unique(im.reshape(-1, 3), axis=0)
+    print(f'There are {len(colors)} colors in this image:')
+    for row in colors:
+        print(f'- {list(row)}')
+    return colors
 
 
 def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
