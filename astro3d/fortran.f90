@@ -130,7 +130,7 @@ subroutine dither_colors(input, output, nx, ny, nc)
             ! we first put all over the threshold to 1.0
             WHERE(old > 0.5) new = 1.0
 
-            ! but there can be only one, so if there are more, we take the larges
+            ! but there can be only one, so if there are more, we take the largest
             if (sum(new) > 1.0) then
                 new = 0.0
                 idx = maxloc(old)
