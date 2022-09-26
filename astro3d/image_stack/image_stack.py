@@ -4,6 +4,8 @@ import imageio
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import ticker
 from matplotlib.colors import LogNorm
 from matplotlib.colors import Normalize
 from scipy.interpolate import RegularGridInterpolator
@@ -71,7 +73,7 @@ def makeslice(iz, z2, f_interp, coords, norm, path, fg=None, bg=None):
 
 def makeslice_color(iz, z2, f_interp, coords, norm, path,
                     levels=[0.15, 0.5, 0.8], sigmas=[0.3, 0.1, 0.3], fill=[1.0, 1.0, 1.0],
-                    colors=None, f=None, bg=[1.0, 1.0, 1.0]):
+                    colors=None, f=None, bg=[1.0, 1.0, 1.0], clip=[3.0, 3.0, 3.0]):
     """
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
     a file `slice_{iz:04d}.png` in the folder `path`.
@@ -93,6 +95,14 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
     density corresponds to a normalized value of 0.4, one can use the inverse of the norm
     like this: `rho = norm.inverse(0.4)` or `rho = norm.inverse([0.4, 0.6]).data` for an array.
 
+    Note: the coordinates and interpolation function should work like this:
+            # coords contains the arrays
+            _x, _y, _z = coords
+            # z coordinate is replaced every time
+            _z = z2[iz]
+            # _x, _y, _z are transformed in a (N, 3) array and passed to the interpolation
+            new_layer = f_interp(_coords)[:, :, 0].T
+
     iz : int
         slice index within `z2`
 
@@ -100,7 +110,7 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
         the new vertical coordinate array
 
     f_inter : callable
-        the interpolation function of (x,y,z)
+        the interpolation function taking the coordinates as a (N, 3) array (N points)
 
     norm : callable
         the normalization function that maps density to 0...1
@@ -116,6 +126,9 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
 
     fill : array
         array of  `N_colors` floats that describe the filling factor of each color
+
+    clip : array
+        after how many sigmas to clip the color density
 
     colors : TBD
         material mixing ratios: each density will be displayed as one color, but each color
@@ -144,17 +157,19 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
 
     # update coordinates - only last entry changes
     _x, _y, _z = coords
-    _z = np.array([[[z2[iz]]]])
+    coords2 = np.array(np.meshgrid(_x, _y, z2[iz])).squeeze().reshape(3, -1).T
 
     # interpolate: note that we transpose as this is how the image will be safed
-    new_layer = f_interp((_x, _y, _z))[:, :, 0].T
+    new_layer = f_interp(coords2).reshape(len(_y), len(_x))
 
     # normalize data
     layer_norm = np.array(norm(new_layer))
 
-    # compute the different density contours
+    # compute the different density contours (but exclude 0.0 which should never be colored)
     dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
-    color_density = 1 / (1 + dist_sq) * fill
+    dist_sq[layer_norm == 0.0] = np.inf
+    dist_sq[dist_sq > np.array(clip)**2] = np.inf
+    color_density = 1. / (1 + dist_sq) * fill
 
     # create the dithered images
     layer_dithered = fmodule.dither_colors(color_density * fill)
@@ -323,17 +338,19 @@ def _sum_imgs(args):
 
 def _sum_color(args):
     "helper function for image_sum summing up only a specific color"
-    low, high, files, nx, ny, color = args
-    summed_image = np.zeros([ny, nx])
+    low, high, files, nx, ny, colors = args
+    colors = np.array(colors, ndmin=2)
 
-    color = np.array(color, ndmin=1)
+    summed_image = np.zeros([ny, nx, len(colors)])
 
     for file in files[low:high + 1]:
-        summed_image += np.array((imageio.imread(file) == color[None, None, :]).all(-1), dtype=int).T
+        img = imageio.imread(file)
+        for ic, col in enumerate(colors):
+            summed_image[:, :, ic] += np.array((img == col[None, None, :]).all(-1), dtype=int).T
     return summed_image
 
 
-def image_sum(files, n_proc=None, color=None):
+def image_sum(files, n_proc=None, colors=None):
     """Sums up the number of filled pixels in the given files
 
     Parameters
@@ -342,9 +359,10 @@ def image_sum(files, n_proc=None, color=None):
         list of files to sum up
     n_proc : int, optional
         number of processors to use, by default None
-    color : array | None
+    colors : array | None
         if not None, it should be one of the colors in the image
-        the function will sum up only the pixels filled with that color
+        the function will sum up only the pixels filled with that color,
+        can be several, then the output will be of size (image size x N_colors)
 
     Returns
     -------
@@ -362,11 +380,14 @@ def image_sum(files, n_proc=None, color=None):
     r = np.arange(0, len(files), len(files) // n_proc)
     r[-1] = len(files)
 
-    if color is None:
+    # the following passes all arguments to the pool
+    # but the first two arguments are the ranges
+    # of the files that should be done by each processor
+    if colors is None:
         args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
         fct = _sum_imgs
     else:
-        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny), repeat(color)))
+        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny), repeat(colors)))
         fct = _sum_color
 
     return sum(p.map(fct, args))
@@ -374,6 +395,10 @@ def image_sum(files, n_proc=None, color=None):
 
 def check_colors(im):
     colors = np.unique(im.reshape(-1, 3), axis=0)
+
+    # we sort them "alphabetically", so white should be on the bottom
+    colors = colors[np.lexsort(np.fliplr(colors).T)]
+
     print(f'There are {len(colors)} colors in this image:')
     for row in colors:
         print(f'- {list(row)}')
@@ -428,3 +453,55 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
             )[:, :, None], repl_cols[ic, :], im_repl)
 
     return im_repl
+
+
+def show_histogram(data, norm, colors, levels, sigmas, clips):
+    """Shows a histogram of the data and indicates the color levels
+
+    Parameters
+    ----------
+    data : array
+        the data to be shown
+    norm : matplotlib.colors.Normalize
+        norm that is used to normalized `data` on a [0,1] range
+    colors : array-like
+        list of colors, shape = `(N_color, 3)`
+    levels : array-like
+        the normalized density level of each color, shape=`(N_color)`
+    sigmas : array-like
+        the width around each level in normalized space, shape=`(N_color)`
+    clips : array-like
+        after how many sigmas should the color be cut off, shape=`(N_color)`
+    """
+    bins = np.linspace(0, 1, 100)
+    counts, _ = np.histogram(np.array(norm(data.ravel())), bins=bins)
+
+    f, ax = plt.subplots(dpi=150)
+
+    ax.bar(np.array(bins[:-1]), counts, width=np.diff(bins), alpha=0.3)
+    ax.step(0.5 * (bins[1:] + bins[:-1]), counts, c='k', lw=1)
+    ax.set_xlim(0, 1)
+    ax.set_yscale('log')
+    ax.set_xlabel('normalized density')
+    ax.set_ylim(ax.get_ylim())
+
+    for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
+        ax.axvline(_level, ls='--', c=colors[i])
+
+        _y = 10**(np.mean(np.log10(ax.get_ylim())) * (1 + 0.1 * i))
+
+        ax.errorbar(_level, _y,
+                    xerr=[
+                        [_sig],
+                        [_sig]], c=colors[i], capsize=5)
+        ax.errorbar(_level, _y,
+                    xerr=[
+                        [_clip * _sig],
+                        [_clip * _sig]], c=colors[i], capsize=5, alpha=0.5)
+
+    ticks = np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
+
+    ax2 = ax.secondary_xaxis('top', functions=(norm.inverse, norm))
+    ax2.set_xlabel('original density')
+    ax2.get_xaxis().set_major_locator(ticker.LogLocator())
+    ax2.get_xaxis().set_ticks(10.**ticks)
