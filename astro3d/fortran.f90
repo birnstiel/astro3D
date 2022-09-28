@@ -329,4 +329,75 @@ write(*,*) res
 
 end subroutine test_interp
 
+! =============================================================================
+
+subroutine mark_streamline(mask, x, y, z, r, nx, ny, line, np)
+implicit none
+
+integer, intent(in) :: nx, ny, np
+double precision, intent(in) :: x(nx), y(ny), z, r, line(np, 3)
+logical, intent(out) :: mask(nx, ny)
+
+double precision :: d1_sq, d2(3), el(3), d, length
+logical :: point_mask(np)
+integer :: ix, iy, ip
+
+! first we check which parts of the streamline are within reach
+! of our z-layer
+! then we add also the neighboring points of the points within reach
+WHERE (ABS(line(:, 3) - z) .le. r)
+    point_mask = .true.
+ELSEWHERE
+    point_mask = .false.
+ENDWHERE
+
+! now make all neighbors true as well
+point_mask(1) = point_mask(1) .or. point_mask(2)
+point_mask(2:np-1) = point_mask(2:np-1) .or. point_mask(1:np-2) .or. point_mask(3:np)
+point_mask(np) = point_mask(np) .or. point_mask(np-1)
+
+
+! now for each pixel, we need to compute all distances to the lines and to the points
+mask = .false.
+
+do ip = 1, np
+    ! if the point mask of this point is not set, we ignore it
+    if (.not.(point_mask(ip))) cycle
+
+    do ix = 1, nx
+        do iy = 1, ny
+
+            !if point is already colored: we can skip it
+            if (mask(ix, iy)) cycle
+
+            ! compute distance to point
+            d2 = (/x(ix), y(iy), z/) - line(ip, :)
+            if (NORM2(d2) .le. r) then
+                mask(ix, iy) = .true.
+                cycle
+            endif
+
+            ! next: compute the distance to the next line segment if there is one
+            if (ip == np) cycle
+            if (.not.point_mask(ip+1)) cycle
+            
+            ! first the unit vector along the line
+            el = line(ip+1,:) - line(ip,:)
+            length = norm2(el)
+            el = el / length
+
+            ! now the projected distances parallel and perpendicular to the line
+            ! check that we are within the length of the line and no less than 
+            ! one radius away perpendicular to it
+            d = dot_product(d2, el)
+            d1_sq = dot_product(d2, d2) - d**2
+            if ((d1_sq .le. r**2) .and. (d .ge. 0) .and. (d .le. length)) then
+                mask(ix, iy) = .true.
+            endif
+        enddo
+    end do
+end do
+
+end subroutine mark_streamline
+
 end module
