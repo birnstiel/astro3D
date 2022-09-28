@@ -9,6 +9,7 @@ from matplotlib import ticker
 from matplotlib.colors import LogNorm
 from matplotlib.colors import Normalize
 from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import interpn
 from tqdm.auto import tqdm
 
 from .. import fmodule
@@ -73,7 +74,8 @@ def makeslice(iz, z2, f_interp, coords, norm, path, fg=None, bg=None):
 
 def makeslice_color(iz, z2, f_interp, coords, norm, path,
                     levels=[0.15, 0.5, 0.8], sigmas=[0.3, 0.1, 0.3], fill=[1.0, 1.0, 1.0],
-                    colors=None, f=None, bg=[1.0, 1.0, 1.0], clip=[3.0, 3.0, 3.0]):
+                    colors=None, f=None, bg=1.0, clip=[3.0, 3.0, 3.0],
+                    streamlines=None, radius=None):
     """
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
     a file `slice_{iz:04d}.png` in the folder `path`.
@@ -149,7 +151,17 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
         which means that the first component is 20% Cyan, 80% Magenta, and the second component is 100% Cyan.
 
     bg : array
-        The background color, usually white: `[1, 1, 1]`
+        The background fill level, default=1 (white)
+
+    streamlines : array
+        list of arrays, each array is one streamline, each streamline
+        is of shape `(N,3)` where `N` can be different for every streamline. Every
+        row gives the x,y,z coordinates of the streamline.
+
+        The streamline color  needs to be given as additional entry in `colors`
+
+    radius : float
+        radius of the streamline in data space, defaults to a few cells (2.5 * delta x)
 
     """
 
@@ -174,26 +186,45 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
     # create the dithered images
     layer_dithered = fmodule.dither_colors(color_density * fill)
 
+    # --- begin adding streamlines ---
+    if streamlines is not None:
+        radius = radius or 2.5 * np.diff(_x)[0]
+        mask = np.zeros([len(_y), len(_x)], dtype=bool)
+
+        for line in streamlines:
+            mask = mask | fmodule.mark_streamline(_x, _y, z2[iz], radius, line).T
+
+        # clear other materials where the mask is true
+        # and attach the streamlines as new material
+        layer_dithered = np.where(mask[:, :, None], 0.0, layer_dithered)
+        layer_dithered = np.concatenate((layer_dithered, mask[:, :, None]), axis=-1)
+    # --- end streamlines ---
+
     # handle colors and f
+    n_level = layer_dithered.shape[-1]
     if colors is None:
-        old_colors = np.eye(len(levels))
+        colors = np.eye(n_level)
     if f is None:
-        f = np.ones(len(levels))
+        f = np.ones(n_level)
 
     # now replace the colors
     im = []
 
-    old_colors = np.eye(len(levels))
+    old_colors = np.eye(n_level)
 
     for col_o, col_n, _f in zip(old_colors, colors, f):
         im += [color_replace(layer_dithered, col_o, col_n, f=_f)]
 
-    im += [color_replace(layer_dithered, np.zeros(old_colors.shape[1]), bg)]
+    # replace the background
+    bg = bg * np.ones(3)
+    im += [color_replace(layer_dithered, np.zeros(n_level), bg)]
 
     im = np.array(im).sum(0)
 
     # save as png
     imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(255 * im))
+
+    return layer_dithered
 
 
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
@@ -455,7 +486,7 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     return im_repl
 
 
-def show_histogram(data, norm, colors, levels, sigmas, clips):
+def show_histogram(data, norm, colors, levels, sigmas, clips, f=None):
     """Shows a histogram of the data and indicates the color levels
 
     Parameters
@@ -472,9 +503,17 @@ def show_histogram(data, norm, colors, levels, sigmas, clips):
         the width around each level in normalized space, shape=`(N_color)`
     clips : array-like
         after how many sigmas should the color be cut off, shape=`(N_color)`
+
+    f : list
+        the mixing fractions of each color. 1 by default for a single color.
     """
     bins = np.linspace(0, 1, 100)
     counts, _ = np.histogram(np.array(norm(data.ravel())), bins=bins)
+
+    # mix colors
+    if f is None:
+        f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
+    mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
 
     f, ax = plt.subplots(dpi=150)
 
@@ -486,18 +525,18 @@ def show_histogram(data, norm, colors, levels, sigmas, clips):
     ax.set_ylim(ax.get_ylim())
 
     for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
-        ax.axvline(_level, ls='--', c=colors[i])
+        ax.axvline(_level, ls='--', c=mix[i])
 
         _y = 10**(np.mean(np.log10(ax.get_ylim())) * (1 + 0.1 * i))
 
         ax.errorbar(_level, _y,
                     xerr=[
                         [_sig],
-                        [_sig]], c=colors[i], capsize=5)
+                        [_sig]], c=mix[i], capsize=5)
         ax.errorbar(_level, _y,
                     xerr=[
                         [_clip * _sig],
-                        [_clip * _sig]], c=colors[i], capsize=5, alpha=0.5)
+                        [_clip * _sig]], c=mix[i], capsize=5, alpha=0.5)
 
     ticks = np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
 
@@ -505,3 +544,83 @@ def show_histogram(data, norm, colors, levels, sigmas, clips):
     ax2.set_xlabel('original density')
     ax2.get_xaxis().set_major_locator(ticker.LogLocator())
     ax2.get_xaxis().set_ticks(10.**ticks)
+
+
+def rkstep(x, y, z, vel, p, ds):
+    """takes a runge-kutta step
+
+    Parameters
+    ----------
+    x : array
+        regular x grid, shape=(nx)
+    y : array
+        regular y grid, shape=(ny)
+    z : array
+        regular z grid, shape=(nz)
+    vel : array
+        velocity/vector field, shape = (nx, ny, nz, 3)
+    p : array
+        starting point, shape = (3)
+    ds : float
+        length of the step
+
+    Returns
+    -------
+    array
+        next position, shape=(3)
+    """
+    pdot0 = interpn((x, y, z), vel, p, bounds_error=False, fill_value=0.0)[0]
+
+    v = np.sqrt(sum(pdot0**2))
+    if (v == 0.0):
+        return p
+
+    dt = ds / v
+
+    pdot1 = interpn((x, y, z), vel, p + dt / 2.0 * pdot0, bounds_error=False, fill_value=0.0)[0]
+
+    v = np.sqrt(sum(pdot1**2))
+    if (v == 0.0):
+        return p
+
+    # update the position
+    dt = ds / v
+    p = p + dt * pdot1
+    return p
+
+
+def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
+    """computed a streamline from point p
+
+    Parameters
+    ----------
+    x : array
+        regular x grid, shape = (nx)
+    y : array
+        regular y grid, shape = (ny)
+    z : array
+        regular z grid, shape = (nz)
+    vel : array
+        vector field, shape = (nx, ny, nz, 3)
+    p : array
+        initial position, shape (3)
+    length : float, optional
+        approximate path length, by default 1.0
+    n_steps : int, optional
+        number of steps along the path, by default 50
+
+    Returns
+    -------
+    array
+        the path strating at p, shape = (nsteps, 3)
+    """
+    path = p * np.ones([n_steps, 3])
+
+    ds = length / n_steps
+
+    # go forward one length
+
+    for i in range(2, n_steps):
+        path[i, :] = rkstep(x, y, z, vel, path[i - 1, :], ds)
+
+    return path
