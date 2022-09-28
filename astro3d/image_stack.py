@@ -12,7 +12,7 @@ from scipy.interpolate import RegularGridInterpolator
 from scipy.interpolate import interpn
 from tqdm.auto import tqdm
 
-from .. import fmodule
+from . import fmodule
 
 # define the rigid Vero™ colors
 VeroT_sRGB = np.array([255, 255, 255]) / 255
