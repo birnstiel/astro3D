@@ -21,61 +21,10 @@ VeroM_sRGB = np.array([149, 39, 87]) / 255
 VeroY_sRGB = np.array([192, 183, 52]) / 255
 
 
-def makeslice(iz, z2, f_interp, coords, norm, path, fg=None, bg=None):
-    """
-    Prints out one slice of the image (index `iz` within grid `z2`) and stores it as
-    a file `slice_{iz:04d}.png` in the folder `path`. Black and white in the image can be
-    replace by `fg` and `bg` which are RGBA colors such as `[255, 255, 255, 255]`.
-
-
-    iz : int
-        slice index within `z2`
-
-    z2 : array
-        the new vertical coordinate array
-
-    f_inter : callable
-        the interpolation function of (x,y,z)
-
-    norm : callable
-        the normalization function that maps density to 0...1
-
-    path : str | Path
-        the path into which to store the images
-
-    bg : array
-        background color
-
-    fg : array
-        foreground color
-
-    """
-    # update coordinates - only last entry changes
-    _x, _y, _z = coords
-    _z = np.array([[[z2[iz]]]])
-
-    # interpolate: note that we transpose as this is how the image will be safed
-    new_layer = f_interp((_x, _y, _z))[:, :, 0].T
-
-    # normalize, convert to grayscale image
-    layer_norm = np.array(norm(new_layer))
-    layer_dither = fmodule.dither(layer_norm)
-
-    # set the foreground and background
-    fg = fg or [0, 0, 0, 255]
-    bg = bg or [255, 255, 255, 255]
-
-    # replace colors
-    im = np.where((layer_dither == 0.0)[:, :, None], bg, fg)
-
-    # save as png
-    imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(im))
-
-
-def makeslice_color(iz, z2, f_interp, coords, norm, path,
-                    levels=[0.15, 0.5, 0.8], sigmas=[0.3, 0.1, 0.3], fill=[1.0, 1.0, 1.0],
-                    colors=None, f=None, bg=1.0, clip=[3.0, 3.0, 3.0],
-                    streamlines=None, radius=None):
+def makeslice(iz, z2, f_interp, coords, norm, path,
+              levels=None, sigmas=None, fill=None,
+              colors=None, f=None, bg=1.0, clip=[3.0, 3.0, 3.0],
+              streamlines=None, radius=None):
     """
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
     a file `slice_{iz:04d}.png` in the folder `path`.
@@ -177,11 +126,16 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
     # normalize data
     layer_norm = np.array(norm(new_layer))
 
-    # compute the different density contours (but exclude 0.0 which should never be colored)
-    dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
-    dist_sq[layer_norm == 0.0] = np.inf
-    dist_sq[dist_sq > np.array(clip)**2] = np.inf
-    color_density = 1. / (1 + dist_sq) * fill
+    if levels is not None:
+        # compute the different density contours (but exclude 0.0 which should never be colored)
+        dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
+        dist_sq[layer_norm == 0.0] = np.inf
+        dist_sq[dist_sq > np.array(clip)**2] = np.inf
+        color_density = 1. / (1 + dist_sq) * fill
+    else:
+        # we are not using the levels, but the density directly
+        color_density = layer_norm
+        fill = fill or [1]
 
     # create the dithered images
     layer_dithered = fmodule.dither_colors(color_density * fill)
@@ -203,7 +157,7 @@ def makeslice_color(iz, z2, f_interp, coords, norm, path,
     # handle colors and f
     n_level = layer_dithered.shape[-1]
     if colors is None:
-        colors = np.eye(n_level)
+        colors = np.linspace(0.0, 1.0, n_level)[:, None] * np.ones(3)[None, :]
     if f is None:
         f = np.ones(n_level)
 
@@ -425,7 +379,7 @@ def image_sum(files, n_proc=None, colors=None):
 
 
 def check_colors(im):
-    colors = np.unique(im.reshape(-1, 3), axis=0)
+    colors = np.unique(im.reshape(-1, im.shape[-1]), axis=0)
 
     # we sort them "alphabetically", so white should be on the bottom
     colors = colors[np.lexsort(np.fliplr(colors).T)]

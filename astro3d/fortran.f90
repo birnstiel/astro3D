@@ -117,9 +117,8 @@ subroutine dither_colors(input, output, nx, ny, nc)
     double precision, intent(in) :: input(nx, ny, nc)
     double precision, intent(out) :: output(nx, ny, nc)
     
-    integer :: ix, iy, new(nc), idx(1)
-    double precision :: error(nc), old(nc)
-    
+    integer :: ix, iy, idx(1)
+    double precision :: error(nc), old(nc), new(nc)
     
     output = input
     
@@ -253,21 +252,21 @@ INTEGER :: ix, iy, iz, ip
 DOUBLE PRECISION :: xd, yd, zd
 DOUBLE PRECISION :: c00, c01, c10, c11, c0, c1
 
+
+!$OMP PARALLEL PRIVATE(ix, iy, iz, ip, xd, yd, zd, c00,c01,c10,c11,c0,c1) SHARED(newvals)
 ix = 1
 iy = 1
 iz = 1
-
-!$OMP PARALLEL PRIVATE(ix, iy, iz, xd, yd, zd, c00,c01,c10,c11,c0,c1) SHARED(newvals)
 !$OMP DO
 do ip = 1, np
 
     ! find the left indices and return zero if any one is out of range
 
     if ( &
-         & (points(ip, 1) .le. x(1)) .or. (points(ip, 1) .ge. x(nx)) .or. &
-         & (points(ip, 2) .le. y(1)) .or. (points(ip, 2) .ge. y(ny)) .or. &
-         & (points(ip, 3) .le. z(1)) .or. (points(ip, 3) .ge. z(nz)) &
-         & ) then
+         & (points(ip, 1) .lt. x(1)) .or. (points(ip, 1) .gt. x(nx)) .or. &
+         & (points(ip, 2) .lt. y(1)) .or. (points(ip, 2) .gt. y(ny)) .or. &
+         & (points(ip, 3) .lt. z(1)) .or. (points(ip, 3) .gt. z(nz)) &
+         & ) then     
         newvals(ip) = fill_value
         CYCLE
     endif
@@ -275,6 +274,11 @@ do ip = 1, np
     call hunt(x, nx, points(ip, 1), ix)
     call hunt(y, ny, points(ip, 2), iy)
     call hunt(z, nz, points(ip, 3), iz)
+
+    if ((ix > nx - 1) .or. (iy > ny - 1) .or. (iz > nz - 1)) then
+        newvals(ip) = fill_value
+        CYCLE
+    endif
 
     ! this follows bilinear/trilinear interpolation from Wikipedia:
 
