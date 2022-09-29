@@ -7,8 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.colors import LogNorm
-from matplotlib.colors import Normalize
-from scipy.interpolate import RegularGridInterpolator
+from matplotlib.colors import Normalize, to_rgb
 from scipy.interpolate import interpn
 from tqdm.auto import tqdm
 
@@ -182,7 +181,7 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
 
 
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
-            norm=None, pool=None, vmin=None, vmax=None, iz=None, fg=None, bg=None):
+            norm=None, pool=None, vmin=None, vmax=None, iz=None):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -212,13 +211,13 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     iz : None or int or int-array, optional
         if int/int array is given, only this/these slice index/indices are produced, by default None
 
-    fg, bg : see `make_slice`
-
     Raises
     ------
     ValueError
         if norm is invalid string
     """
+
+    # define the norm
 
     if norm is None or isinstance(norm, str):
 
@@ -239,11 +238,14 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
         print('from {vmin:.2g} to {vmax:.2g}')
         norm = Norm(vmin=vmin, vmax=vmax, clip=True)
 
+    # create original grid and interpolation function
+
     x = np.arange(data.shape[0])
     y = np.arange(data.shape[1])
     z = np.arange(data.shape[2])
 
-    f_interp = RegularGridInterpolator((x, y, z), data)
+    def f_interp(coords):
+        return fmodule.interpolate(x, y, z, data, coords)
 
     # calculate new grids
 
@@ -257,14 +259,15 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
     x2 = np.linspace(0, data.shape[0] - 1, n_x)
     y2 = np.linspace(0, data.shape[1] - 1, n_y)
     z2 = np.linspace(0, data.shape[2] - 1, n_z)
-    _x, _y, _z = np.meshgrid(x2, y2, z2[0], sparse=True, indexing='ij')
-    coords = (_x, _y, _z)
+    coords = (x2, y2, z2)
 
-    print(f'  original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
+    print(f'original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
     print(f'interpoation to: {n_x} x {n_y} x {n_z}')
     print(f'print size: {n_x * 2.54 / dpi_x:.2f} x {n_y * 2.54 / dpi_y:.2f} x {n_z *2.54 / dpi_z:.2f} cm')
     print(f'saving into {output_dir}')
     path = Path(output_dir)
+
+    # make output directory available & clean
 
     if not path.is_dir():
         path.mkdir()
@@ -277,6 +280,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
 
     if iz is not None:
         z2 = z2[np.array(iz, ndmin=1)]
+        print(f'only printing {len(np.array(iz, ndmin=1)) * 2.54 / dpi_z:.2f} cm of it')
 
     n = len(z2)
 
@@ -288,8 +292,6 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                 repeat(coords),
                 repeat(norm),
                 repeat(path),
-                repeat(fg),
-                repeat(bg),
                 ),
             total=n))
     else:
@@ -305,8 +307,6 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                             repeat(coords),
                             repeat(norm),
                             repeat(path),
-                            repeat(fg),
-                            repeat(bg),
                         ), total=n),
                     chunksize=4))
 
@@ -440,7 +440,7 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     return im_repl
 
 
-def show_histogram(data, norm, colors, levels, sigmas, clips, f=None):
+def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None, f=None, fill=None):
     """Shows a histogram of the data and indicates the color levels
 
     Parameters
@@ -457,19 +457,21 @@ def show_histogram(data, norm, colors, levels, sigmas, clips, f=None):
         the width around each level in normalized space, shape=`(N_color)`
     clips : array-like
         after how many sigmas should the color be cut off, shape=`(N_color)`
-
+    fill : None
+        filling factor of each layer
     f : list
         the mixing fractions of each color. 1 by default for a single color.
     """
     bins = np.linspace(0, 1, 100)
     counts, _ = np.histogram(np.array(norm(data.ravel())), bins=bins)
 
-    # mix colors
-    if f is None:
-        f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
-    mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
+    if colors is not None:
+        # mix colors
+        if f is None:
+            f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
+        mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
 
-    f, ax = plt.subplots(dpi=150)
+    fig, ax = plt.subplots(dpi=150)
 
     ax.bar(np.array(bins[:-1]), counts, width=np.diff(bins), alpha=0.3)
     ax.step(0.5 * (bins[1:] + bins[:-1]), counts, c='k', lw=1)
@@ -478,19 +480,34 @@ def show_histogram(data, norm, colors, levels, sigmas, clips, f=None):
     ax.set_xlabel('normalized density')
     ax.set_ylim(ax.get_ylim())
 
-    for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
-        ax.axvline(_level, ls='--', c=mix[i])
+    # if we do level-based coloring ....
+    if (levels is not None) and (sigmas is not None) and (clips is not None):
+        if colors is None:
+            # get default colors
+            colors = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()['color'][:len(levels)]])
+        for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
+            ax.axvline(_level, ls='--', c=mix[i])
 
-        _y = 10**(np.mean(np.log10(ax.get_ylim())) * (1 + 0.1 * i))
+            _y = 10**(np.mean(np.log10(ax.get_ylim())) * (1 + 0.1 * i))
 
-        ax.errorbar(_level, _y,
-                    xerr=[
-                        [_sig],
-                        [_sig]], c=mix[i], capsize=5)
-        ax.errorbar(_level, _y,
-                    xerr=[
-                        [_clip * _sig],
-                        [_clip * _sig]], c=mix[i], capsize=5, alpha=0.5)
+            ax.errorbar(_level, _y,
+                        xerr=[
+                            [_sig],
+                            [_sig]], c=mix[i], capsize=5)
+            ax.errorbar(_level, _y,
+                        xerr=[
+                            [_clip * _sig],
+                            [_clip * _sig]], c=mix[i], capsize=5, alpha=0.5)
+
+        # estimate the filling factor
+        dn = np.array(norm(data.ravel())).reshape(data.shape)
+        dist_sq = (np.array(levels)[None, None, :] - dn[..., None])**2 / (2 * sigmas**2)
+        dist_sq[dn == 0.0] = np.inf
+        dist_sq[dist_sq > np.array(clips)**2] = np.inf
+        color_density = 1. / (1 + dist_sq) * fill
+        ff = color_density.sum() / np.product(data.shape)
+    else:
+        ff = (norm(data.ravel())).sum() / np.product(data.shape)
 
     ticks = np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
 
@@ -498,6 +515,8 @@ def show_histogram(data, norm, colors, levels, sigmas, clips, f=None):
     ax2.set_xlabel('original density')
     ax2.get_xaxis().set_major_locator(ticker.LogLocator())
     ax2.get_xaxis().set_ticks(10.**ticks)
+
+    ax.text(0.05, 0.95, f'approximate filling factor = {ff:.2%}', va='top', transform=ax.transAxes)
 
 
 def rkstep(x, y, z, vel, p, ds):
