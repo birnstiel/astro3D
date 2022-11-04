@@ -1,15 +1,15 @@
 from pathlib import Path
 from itertools import repeat
 import imageio
-from multiprocessing import Pool, cpu_count
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import ticker
-from matplotlib.colors import LogNorm
-from matplotlib.colors import Normalize, to_rgb
+from matplotlib.colors import LogNorm, Normalize, to_rgb, LinearSegmentedColormap
 from scipy.interpolate import interpn
 from tqdm.auto import tqdm
+
+from skimage.io import imread_collection
 
 from . import fmodule
 
@@ -311,71 +311,15 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
                     chunksize=4))
 
 
-def _sum_imgs(args):
-    "helper function for image_sum"
-    low, high, files, nx, ny = args
-    summed_image = np.zeros([ny, nx])
-
-    for file in files[low:high + 1]:
-        summed_image += np.array(imageio.imread(file).sum(-1) < 3 * 255, dtype=int).T
-    return summed_image
-
-
-def _sum_color(args):
-    "helper function for image_sum summing up only a specific color"
-    low, high, files, nx, ny, colors = args
-    colors = np.array(colors, ndmin=2)
-
-    summed_image = np.zeros([ny, nx, len(colors)])
-
-    for file in files[low:high + 1]:
-        img = imageio.imread(file)
-        for ic, col in enumerate(colors):
-            summed_image[:, :, ic] += np.array((img == col[None, None, :]).all(-1), dtype=int).T
-    return summed_image
-
-
-def image_sum(files, n_proc=None, colors=None):
-    """Sums up the number of filled pixels in the given files
-
-    Parameters
-    ----------
-    files : list
-        list of files to sum up
-    n_proc : int, optional
-        number of processors to use, by default None
-    colors : array | None
-        if not None, it should be one of the colors in the image
-        the function will sum up only the pixels filled with that color,
-        can be several, then the output will be of size (image size x N_colors)
-
-    Returns
-    -------
-    array
-        sum of filled pixels in the given files
+def index_lookup(img, palette):
+    """given an RGB image and its color palette, get the
+    indexed array (i.e. index within the pallette for each pixel). This is from here:
+    stackoverflow.com/questions/72050038
     """
-
-    nx, ny = imageio.imread(files[0]).shape[:2]
-
-    # get a pool
-    n_proc = n_proc or cpu_count()
-    p = Pool(n_proc)
-
-    # prepare the arguments
-    r = np.arange(0, len(files), len(files) // n_proc)
-    r[-1] = len(files)
-
-    # the following passes all arguments to the pool
-    # but the first two arguments are the ranges
-    # of the files that should be done by each processor
-    if colors is None:
-        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny)))
-        fct = _sum_imgs
-    else:
-        args = list(zip(r[0:], [x - 1 for x in r[1:]], repeat(files), repeat(nx), repeat(ny), repeat(colors)))
-        fct = _sum_color
-
-    return sum(p.map(fct, args))
+    n = palette.shape[-1]
+    M = (1 + palette.max())**np.arange(n)
+    p1d, ix = np.unique(palette @ M, return_index=True)
+    return ix[np.searchsorted(p1d, img @ M)]
 
 
 def check_colors(im):
@@ -384,9 +328,6 @@ def check_colors(im):
     # we sort them "alphabetically", so white should be on the bottom
     colors = colors[np.lexsort(np.fliplr(colors).T)]
 
-    print(f'There are {len(colors)} colors in this image:')
-    for row in colors:
-        print(f'- {list(row)}')
     return colors
 
 
@@ -597,3 +538,268 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
         path[i, :] = rkstep(x, y, z, vel, path[i - 1, :], ds)
 
     return path
+
+
+class IStack(object):
+    def __init__(self, directory, dpi_x, dpi_y, dz):
+        self.directory = Path(directory)
+        self.files = sorted(list(self.directory.glob('*.png')))
+
+        # read image stack - the transpose makes the order x, y, z
+        collection = imread_collection(str(self.directory / '*.png'))
+        self.imgs = collection.concatenate()
+        self.imgs = self.imgs.transpose(2, 1, 0, 3)
+
+        # get image sizes
+        self.nx, self.ny = self.imgs.shape[:2]
+        self.nz = len(self.files)
+        self._x = np.arange(self.nx)
+        self._y = np.arange(self.ny)
+
+        # set printer properties
+        self.dx = 2.54 / dpi_x
+        self.dy = 2.54 / dpi_y
+        self.dz = dz
+
+        self.dpi_x = dpi_x
+        self.dpi_y = dpi_y
+        self.dpi_z = 2.54 / dz
+
+        # determine the palette
+        self._colors = None
+        self._ncol = None
+        self._counts = None
+
+        # which indices are empty
+        self._empty_indices = None
+
+    @property
+    def empty_indices(self):
+        "the indices in the color palette that are empty (no material or transparent)"
+        if self._empty_indices is None:
+            self._empty_indices = []
+        return self._empty_indices
+
+    @empty_indices.setter
+    def empty_indices(self, value):
+        value = np.array(value, ndmin=1)
+        value[value == -1] = self.ncol - 1
+        if value.min() < 0 or (value.max() > self.ncol - 1):
+            raise ValueError('indices outside of color palette length')
+        self._empty_indices = value
+
+    @property
+    def nonempty_indices(self):
+        "the indices in the color palette that are not empty (=not transparent)"
+        return self._get_nonempty(self.empty_indices)
+
+    def _get_nonempty(self, empty_indices):
+        return [i for i in range(self.ncol) if i not in empty_indices]
+
+    @property
+    def colors(self):
+        if self._colors is None:
+            self._get_colors()
+        return self._colors
+
+    @property
+    def ncol(self):
+        if self._ncol is None:
+            self._get_colors()
+        return self._ncol
+
+    def _get_colors(self, N=10):
+        """Get all colors present in a random sub-sample of N slices.
+        """
+        print(f'getting colors from {N} sample images ... ', flush=True, end='')
+        idx = np.random.randint(0, high=self.nz - 1, size=N)
+        self._colors = check_colors(self.imgs[:, :, idx, :])
+        self._ncol = len(self._colors)
+        print('Done!')
+
+    @property
+    def counts(self):
+        """the number of pixels filled in each column for each material"""
+        if self._counts is None:
+            print('computing counts ... ', flush=True, end='')
+            # add up the occurences of all colors
+            self._counts = np.zeros([self.nx, self.ny, self.ncol])
+            idx = np.arange(len(self.colors))
+            for i in range(self.nz):
+                im_idx = index_lookup(self.imgs[:, :, i, :], self.colors)
+                self._counts += (im_idx[:, :, None] == idx[None, None, :])
+            print('Done!')
+        return self._counts
+
+    def show_colors(self):
+        """Shows a figure with all colors"""
+        f = plt.figure()
+        ax = f.add_axes([0, 0, 1, 1])
+        ax.imshow([self.colors])
+        ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+    def show_histogram(self, empty_indices=None):
+        """Shows a histogram of all non-transparent materials.
+
+        Parameters
+        ----------
+        empty_indices : list, optional
+            indices within colors that count as empty (void or transparent), defaults to class attribute `empty_indices`
+
+        Returns
+        -------
+        figure, axes
+            figure and axes objects
+        """
+        empty_indices = empty_indices or self.empty_indices
+        rest = self._get_nonempty(empty_indices)
+
+        f, ax = plt.subplots()
+        _ = ax.hist(self.counts[:, :, rest].ravel(), bins=np.linspace(0, 20, 21) - 0.5)
+        ax.set_yscale('log')
+        ax.set_xlim(right=20)
+        return f, ax
+
+    def show_counts(self, vmax=10, empty_indices=None):
+        """display the distribution of colors along the vertical dimension.
+
+        Parameters
+        ----------
+        vmax : int, optional
+            upper end of the color scale, by default 10
+
+        empty_indices : array, optional
+            which indices to skip, defaults to attribute self.empty_indices
+
+        Returns
+        -------
+        figure, axis
+            returns the figure and axis object
+        """
+        empty_indices = empty_indices or self.empty_indices
+
+        f, ax = plt.subplots(2, self.ncol, figsize=(5 * self.ncol, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
+
+        for ic, col in enumerate(self.colors):
+            # skip the transparent regions
+            if ic in self.empty_indices:
+                continue
+
+            # assign a color map from white to that color
+            # for colors close to white, we invert it
+            if np.any(col > 1.):
+                col = col / 255
+            if (col).sum() > 2.8:
+                bg = [0., 0., 0.]
+            else:
+                bg = [1., 1., 1.]
+            cmap = LinearSegmentedColormap.from_list('my', [bg, col])
+
+            # plotting
+            cc = ax[1, ic].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            ax[1, ic].set_aspect(self.dpi_y / self.dpi_x)
+            f.colorbar(cc, cax=ax[0, ic], orientation='horizontal')
+
+        return f, ax
+
+    def show_info(self, empty_indices=None):
+        "prints some infos about the image stack (size, filling factor, ...)"
+        # indices of the non-transparent
+        empty_indices = empty_indices or self.empty_indices
+        rest = self._get_nonempty(empty_indices)
+
+        print(f'There are {self.ncol} colors in this image:')
+        for i, row in enumerate(self.colors):
+            print(f'- {list(row)}' + (i in empty_indices) * ' (transp.)')
+
+        print(f'{self.nz} files')
+        print(f'dimension = {self.nx * self.dx:.2f} x {self.ny * self.dy:.2f} x {self.nz * self.dz:.2f} cm')
+        print(f'filling fraction: {1 - self.counts[:, :, empty_indices].sum() / (self.nx * self.ny * self.nz):.2%}')
+
+        print(f'nr of fully transparent columns: {(self.counts[:, :, rest].sum(-1) == 0).sum() / (self.nx * self.ny * self.nz):.2%}')
+        print(f'most opaque pixel has {self.counts[:, :, rest].sum(-1).max():n} filled pixels (={self.counts[:, :, rest].sum(-1).max() / self.nz:.2%} of all layers are filled)')
+
+        print('mean counts in non-transparent columns: ' + ', '.join([f'{np.mean(self.counts[:, :, i][self.counts[:,:,i]!=0]):.2g}' for i in range(self.ncol)]))
+
+    def show_transparency_estimate(self, empty_indices=None):
+        "shows a map of the estimated projected transparency"
+
+        empty_indices = empty_indices or self.empty_indices
+        rest = self._get_nonempty(empty_indices)
+
+        f, axs = plt.subplots(1, 3, figsize=(11, 3), dpi=100, tight_layout=True)
+
+        opts = dict(cmap='gray', origin='upper')
+        summed_image = self.counts[:, :, rest].sum(-1)
+
+        ax = axs[0]
+        cc = ax.imshow(summed_image.T, **opts, vmin=0, vmax=7)
+        ax.set_aspect(self.dpi_x / self.dpi_y)
+        plt.colorbar(cc, ax=ax).set_label('# of opaque pixes along LOS')
+
+        ax = axs[1]
+        i = ax.imshow(summed_image.T, vmin=0, vmax=summed_image.max(), **opts)
+        ax.set_aspect(self.dpi_x / self.dpi_y)
+        plt.colorbar(i, ax=ax).set_label('# of opaque pixes along LOS')
+
+        ax = axs[-1]
+        counts, bins, patches = ax.hist(summed_image.ravel(), bins=np.arange(summed_image.max()))
+        ax.set_yscale('log')
+        ax.set_xlabel('number of filled voxels in column')
+        ax.set_xlabel('count')
+        return f, ax
+
+    def get_top_view(self, empty_indices=None, n_tauone=7):
+        """computes an approximate render view from top, assuming the optical depth is around `n_tauone` pixels.
+
+        Parameters
+        ----------
+        empty_indices : array, optional
+            indices of the colors in self.colors that should be treated as transparent,
+            by default it uses the class property
+
+        n_tauone : int, optional
+            after how many pixels the print becomes optically thick, by default 7
+
+        Returns
+        -------
+        array
+            rendered image
+        """
+        # which colors in stack.colors are to be treated as transparent
+        empty_indices = empty_indices or self.empty_indices
+
+        # start with black background (white background would require substracting the inverse colors or so)
+        image = np.zeros_like(self.imgs[:, :, 0, :], dtype=float)
+
+        # this is the transfer function exp(-tau). We assume that about 7 pixels are tau=1
+        exp = np.exp(-1. / n_tauone)
+        trans_fct = exp * np.ones(image.shape[:2], dtype=image.dtype)
+
+        for i in range(self.nz):
+            slice = self.imgs[:, :, i, :]
+
+            # this array is set to 0 for every transparent pixel, and 1 for the rest
+            transparency_factor = np.ones_like(slice[:, :, 0], dtype=image.dtype)
+            for i_t in empty_indices:
+                transparency_factor[(slice == self.colors[i_t]).all(-1)] = 1 / exp
+
+            _tf = trans_fct * transparency_factor
+
+            image = image * _tf[:, :, None] + (1 - _tf[:, :, None]) * slice
+
+        return image
+
+    def show_top_view(self, ax=None, **kwargs):
+        "plots the top view generate with `get_top_view` (to which kwargs are passed)"
+        image = self.get_top_view(**kwargs)
+
+        if ax is None:
+            f, ax = plt.subplots()
+        else:
+            f = ax.figure
+
+        ax.imshow(image / 255)
+        ax.set_aspect(self.dpi_y / self.dpi_x)
+
+        return f, ax
