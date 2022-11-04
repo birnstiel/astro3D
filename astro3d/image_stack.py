@@ -604,9 +604,9 @@ class IStack(object):
 
     @property
     def ncol(self):
-        if self._ncol is None:
+        if self._colors is None:
             self._get_colors()
-        return self._ncol
+        return len(self.colors)
 
     def _get_colors(self, N=10):
         """Get all colors present in a random sub-sample of N slices.
@@ -621,14 +621,13 @@ class IStack(object):
     def counts(self):
         """the number of pixels filled in each column for each material"""
         if self._counts is None:
-            print('computing counts ... ', flush=True, end='')
+
             # add up the occurences of all colors
             self._counts = np.zeros([self.nx, self.ny, self.ncol])
             idx = np.arange(len(self.colors))
-            for i in range(self.nz):
+            for i in tqdm(range(self.nz), desc='computing counts'):
                 im_idx = index_lookup(self.imgs[:, :, i, :], self.colors)
                 self._counts += (im_idx[:, :, None] == idx[None, None, :])
-            print('Done!')
         return self._counts
 
     def show_colors(self):
@@ -822,3 +821,87 @@ class IStack(object):
         ax.set_aspect(self.dpi_y / self.dpi_x)
 
         return f, ax
+
+    def add_shell(self, thickness, level=200,
+                  bottom=True,
+                  top=True,
+                  left=True,
+                  right=True,
+                  front=True,
+                  back=True):
+        """adds a constant width shell around the image cube.
+
+        Parameters
+        ----------
+        thickness : float
+            shell thickness in cm
+        level : int, optional
+            grey scale value of the shell material, by default 200
+        bottom, top, left, right, front, back : bool, optional
+            whether or not to add the bottom, top, ... side of the shell, by default True
+        """
+
+        n_x = int(thickness / 2.54 * self.dpi_x)
+        n_y = int(thickness / 2.54 * self.dpi_y)
+        n_z = int(thickness / 2.54 * self.dpi_z)
+
+        self.imgs = np.pad(self.imgs, (
+            (left * n_x, right * n_x),
+            (front * n_y, back * n_y),
+            (bottom * n_z, top * n_z),
+            (0, 0)),
+            mode='constant', constant_values=level)
+
+        self.nx, self.ny, self.nz = self.imgs.shape[:-1]
+
+        self._counts = None
+
+    def save(self, i, path='.'):
+        """write image layer i to `path`
+
+        Parameters
+        ----------
+        i : int
+            z-index of the layer
+        path : str, optional
+            path to store image. Filename will be like `slice_0001.png`, by default '.'
+        """
+        path = Path(path)
+        imageio.imwrite(path / f'slice_{i:04d}.png', np.uint8(self.imgs[:, :, i, :].transpose(1, 0, 2)))
+
+    def save_images(self, path, i0=None, i1=None):
+        """save all images between `i0` and `i1` to the directory `path`.
+
+        Parameters
+        ----------
+        path : str | pathlib.Path
+            directory into which to write the images
+        i0 : int, optional
+            initial index, by default 0
+        i1 : int, optional
+            final index, by default nz
+        """
+
+        # make output directory available & clean
+        path = Path(path)
+        if not path.is_dir():
+            path.mkdir()
+        else:
+            files = list(path.glob('slice*.png'))
+            if len(files) > 0:
+                print('directory exists, deleting old files')
+                for file in files:
+                    file.unlink()
+
+        # determine which slices to print
+        i0 = i0 or 0
+        i1 = i1 or self.nz - 1
+
+        if (i0 != 0) or (i1 != self.nz - 1):
+            print(f'only printing from index {i0} to {i1} = {(i1 - i0) * 2.54 / self.dpi_z:.2f} cm of it')
+
+        indices = np.arange(i0, i1 + 1)
+
+        list(tqdm(
+            map(self.save, indices, repeat(path)),
+            total=i1 + 1 - i0))
