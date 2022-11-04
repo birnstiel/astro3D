@@ -638,6 +638,13 @@ class IStack(object):
         ax.imshow([self.colors])
         ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
 
+    def replace_color(self, i_col, new_col):
+        """Replaces the color of index `i_col` with the new color `new_col`."""
+        new_col = np.array(new_col)
+        mask = (self.imgs == self.colors[i_col][None, None, None, :]).all(-1)
+        self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
+        self.colors[i_col, :] = new_col
+
     def show_histogram(self, empty_indices=None):
         """Shows a histogram of all non-transparent materials.
 
@@ -683,6 +690,8 @@ class IStack(object):
         f, ax = plt.subplots(2, n_columns, figsize=(5 * n_columns, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
 
         ax = np.array(ax, ndmin=2)
+        if n_columns == 1:
+            ax = ax.T
 
         i_column = -1
 
@@ -703,9 +712,9 @@ class IStack(object):
             cmap = LinearSegmentedColormap.from_list('my', [bg, col])
 
             # plotting
-            cc = ax[i_column, 1].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
-            ax[i_column, 1].set_aspect(self.dpi_y / self.dpi_x)
-            f.colorbar(cc, cax=ax[i_column, 0], orientation='horizontal')
+            cc = ax[1, i_column].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            ax[1, i_column].set_aspect(self.dpi_y / self.dpi_x)
+            f.colorbar(cc, cax=ax[0, i_column], orientation='horizontal')
 
         return f, ax
 
