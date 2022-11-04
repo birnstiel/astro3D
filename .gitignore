@@ -9,7 +9,8 @@ frames/
 build/
 notebooks/*.png
 notebooks/*.jpg
-notebooks/data/
+astro3d/data/
+astro3d/output/
 notebooks/output/
 frame_*.jpg
 slice_*.png
