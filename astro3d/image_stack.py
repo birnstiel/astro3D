@@ -682,6 +682,8 @@ class IStack(object):
 
         f, ax = plt.subplots(2, n_columns, figsize=(5 * n_columns, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
 
+        ax = np.array(ax, ndmin=2)
+
         i_column = -1
 
         for ic, col in enumerate(self.colors):
@@ -701,9 +703,9 @@ class IStack(object):
             cmap = LinearSegmentedColormap.from_list('my', [bg, col])
 
             # plotting
-            cc = ax[1, i_column].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
-            ax[1, i_column].set_aspect(self.dpi_y / self.dpi_x)
-            f.colorbar(cc, cax=ax[0, i_column], orientation='horizontal')
+            cc = ax[i_column, 1].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            ax[i_column, 1].set_aspect(self.dpi_y / self.dpi_x)
+            f.colorbar(cc, cax=ax[i_column, 0], orientation='horizontal')
 
         return f, ax
 
