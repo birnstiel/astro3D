@@ -678,12 +678,17 @@ class IStack(object):
         """
         empty_indices = empty_indices or self.empty_indices
 
-        f, ax = plt.subplots(2, self.ncol, figsize=(5 * self.ncol, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
+        n_columns = self.ncol - len(empty_indices)
+
+        f, ax = plt.subplots(2, n_columns, figsize=(5 * n_columns, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
+
+        i_column = -1
 
         for ic, col in enumerate(self.colors):
             # skip the transparent regions
             if ic in self.empty_indices:
                 continue
+            i_column += 1
 
             # assign a color map from white to that color
             # for colors close to white, we invert it
@@ -696,9 +701,9 @@ class IStack(object):
             cmap = LinearSegmentedColormap.from_list('my', [bg, col])
 
             # plotting
-            cc = ax[1, ic].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
-            ax[1, ic].set_aspect(self.dpi_y / self.dpi_x)
-            f.colorbar(cc, cax=ax[0, ic], orientation='horizontal')
+            cc = ax[1, i_column].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            ax[1, i_column].set_aspect(self.dpi_y / self.dpi_x)
+            f.colorbar(cc, cax=ax[0, i_column], orientation='horizontal')
 
         return f, ax
 
@@ -749,7 +754,7 @@ class IStack(object):
         ax.set_xlabel('count')
         return f, ax
 
-    def get_top_view(self, empty_indices=None, n_tauone=7):
+    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[0, 0, 0]):
         """computes an approximate render view from top, assuming the optical depth is around `n_tauone` pixels.
 
         Parameters
@@ -761,6 +766,9 @@ class IStack(object):
         n_tauone : int, optional
             after how many pixels the print becomes optically thick, by default 7
 
+        bg : array, optional
+            background image color, default black, i.e. [0, 0, 0]
+
         Returns
         -------
         array
@@ -770,7 +778,7 @@ class IStack(object):
         empty_indices = empty_indices or self.empty_indices
 
         # start with black background (white background would require substracting the inverse colors or so)
-        image = np.zeros_like(self.imgs[:, :, 0, :], dtype=float)
+        image = np.ones_like(self.imgs[:, :, 0, :], dtype=float) * bg
 
         # this is the transfer function exp(-tau). We assume that about 7 pixels are tau=1
         exp = np.exp(-1. / n_tauone)
