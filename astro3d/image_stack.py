@@ -1,6 +1,7 @@
 from pathlib import Path
-from itertools import repeat
+from itertools import repeat, cycle
 import imageio
+from colorsys import rgb_to_hsv
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -630,12 +631,39 @@ class IStack(object):
                 self._counts += (im_idx[:, :, None] == idx[None, None, :])
         return self._counts
 
-    def show_colors(self):
-        """Shows a figure with all colors"""
-        f = plt.figure()
+    def show_colors(self, titles=[], **kwargs):
+        """Shows a figure with all colors
+
+        Parameters
+        ----------
+        titles : list, optional
+            list of color names, by default []
+
+        other keywords are passedto the `Axes.Text` call
+
+        Returns
+        -------
+        f, ax
+            figure and axes handles
+        """
+        f = plt.figure(figsize=(len(self.colors), 1))
         ax = f.add_axes([0, 0, 1, 1])
         ax.imshow([self.colors])
         ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+        if 'ha' not in kwargs or 'horizontalalignment' not in kwargs:
+            kwargs['ha'] = 'center'
+
+        if 'color' not in kwargs or 'c' not in kwargs:
+            tcolors = [str(round(1 - rgb_to_hsv(*col)[-1] / 255)) for col in self.colors]
+        else:
+            tcolors = kwargs.pop('color', kwargs.pop('c', None))
+
+        if len(titles) > 0:
+
+            for i, title, tcol in zip(range(len(self.colors)), cycle(titles), cycle(tcolors)):
+                ax.text(i, -0.35, title, c=tcol, **kwargs)
+        return f, ax
 
     def replace_color(self, i_col, new_col):
         """Replaces the color of index `i_col` with the new color `new_col`."""
