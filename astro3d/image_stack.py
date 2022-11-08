@@ -61,13 +61,20 @@ VeroM_sRGB = np.array([149, 39, 87]) / 255
 VeroY_sRGB = np.array([192, 183, 52]) / 255
 
 # define the RGB values of CMY
-C_sRGB = cmyk_to_rgb(np.array([100, 0,   0, 0])) / 255
-M_sRGB = cmyk_to_rgb(np.array([0, 100,   0, 0])) / 255
-Y_sRGB = cmyk_to_rgb(np.array([0,   0, 100, 0])) / 255
+C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0])) / 255
+M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0])) / 255
+Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0])) / 255
+
+# colors defined in the VoxelPrinting Guide
+BaseCyan = np.array([0, 89, 158]) / 255
+BaseMagenta = np.array([161, 35, 99]) / 255
+BaseYellow = np.array([213, 178, 0]) / 255
+BaseBlack = np.array([30, 30, 30]) / 255
+BaseWhite = np.array([220, 222, 216]) / 255
 
 
 def makeslice(iz, z2, f_interp, coords, norm, path,
-              levels=None, sigmas=None, fill=None,
+              levels=None, sigmas=None, fill=1.0,
               colors=None, f=None, bg=1.0, clip=[3.0, 3.0, 3.0],
               streamlines=None, radius=None):
     """
@@ -120,8 +127,8 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     sigmas : array
         array of `N_colors` floats that describe the density width
 
-    fill : array
-        array of  `N_colors` floats that describe the filling factor of each color
+    fill : float | array
+        float or array of  `N_colors` floats that describe the filling factor of each color
 
     clip : array
         after how many sigmas to clip the color density
@@ -180,7 +187,6 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     else:
         # we are not using the levels, but the density directly
         color_density = layer_norm
-        fill = fill or [1]
 
     # create the dithered images
     layer_dithered = fmodule.dither_colors(color_density * fill)
@@ -427,7 +433,7 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     return im_repl
 
 
-def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None, f=None, fill=None):
+def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None, f=None, fill=1.0):
     """Shows a histogram of the data and indicates the color levels
 
     Parameters
@@ -444,7 +450,7 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
         the width around each level in normalized space, shape=`(N_color)`
     clips : array-like
         after how many sigmas should the color be cut off, shape=`(N_color)`
-    fill : None
+    fill : float | array
         filling factor of each layer
     f : list
         the mixing fractions of each color. 1 by default for a single color.
