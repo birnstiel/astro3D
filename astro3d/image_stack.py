@@ -14,11 +14,56 @@ from skimage.io import imread_collection
 
 from . import fmodule
 
+
+def rgb_to_cmyk(color):
+    """Converts RGB colors to CMYK
+
+    Parameters
+    ----------
+    color : array
+        RGB(A) values need to be 0 ... 255, A is ignored
+
+    Returns
+    -------
+    list
+        CMYK values
+    """
+    R, G, B = np.array(color[:3]) / 255
+
+    K = 1 - np.max([R, G, B])
+    C = (1 - R - K) / (1 - K)
+    M = (1 - G - K) / (1 - K)
+    Y = (1 - B - K) / (1 - K)
+    return np.array([C, M, Y, K])
+
+
+def cmyk_to_rgb(CMYK):
+    """Converts CMYK colors to RGB
+
+    Parameters
+    ----------
+    CMYK : array
+        CMYK values need to be 0 ... 100
+
+    Returns
+    -------
+    list
+        RGB values, 0 ... 255
+    """
+    CMYK = np.array(CMYK, ndmin=1)
+    return 255 * (1 - CMYK[:3] / 100) * (1 - CMYK[3] / 100)
+
+
 # define the rigid Vero™ colors
 VeroT_sRGB = np.array([255, 255, 255]) / 255
 VeroC_sRGB = np.array([29, 85, 111]) / 255
 VeroM_sRGB = np.array([149, 39, 87]) / 255
 VeroY_sRGB = np.array([192, 183, 52]) / 255
+
+# define the RGB values of CMY
+C_sRGB = cmyk_to_rgb(np.array([100, 0,   0, 0])) / 255
+M_sRGB = cmyk_to_rgb(np.array([0, 100,   0, 0])) / 255
+Y_sRGB = cmyk_to_rgb(np.array([0,   0, 100, 0])) / 255
 
 
 def makeslice(iz, z2, f_interp, coords, norm, path,
