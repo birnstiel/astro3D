@@ -843,7 +843,7 @@ class IStack(object):
         ax.set_xlabel('count')
         return f, ax
 
-    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[0, 0, 0]):
+    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[0, 0, 0], view='xy', backward=False):
         """computes an approximate render view from top, assuming the optical depth is around `n_tauone` pixels.
 
         Parameters
@@ -858,23 +858,43 @@ class IStack(object):
         bg : array, optional
             background image color, default black, i.e. [0, 0, 0]
 
+        view : str
+            viewing direction: 'xy' (default), 'xz', 'yz'
+
+        backward : bool
+            view from opposite direction, default: False
+
         Returns
         -------
         array
             rendered image
         """
+
+        if view == 'xy':
+            transpose = [0, 1, 2, 3]
+        elif view == 'xz':
+            transpose = [0, 2, 1, 3]
+        elif view == 'yz':
+            transpose = [1, 2, 0, 3]
+        else:
+            raise ValueError('invalid view')
+
         # which colors in stack.colors are to be treated as transparent
         empty_indices = empty_indices or self.empty_indices
 
         # start with black background (white background would require substracting the inverse colors or so)
-        image = np.ones_like(self.imgs[:, :, 0, :], dtype=float) * bg
+        image = np.ones_like(self.imgs.transpose(*transpose)[:, :, 0, :], dtype=float) * bg
 
         # this is the transfer function exp(-tau). We assume that about 7 pixels are tau=1
         exp = np.exp(-1. / n_tauone)
         trans_fct = exp * np.ones(image.shape[:2], dtype=image.dtype)
 
-        for i in range(self.nz):
-            slice = self.imgs[:, :, i, :]
+        indices = np.arange(self.imgs.transpose(*transpose).shape[2])
+        if backward:
+            indices = indices[::-1]
+
+        for i in indices:
+            slice = self.imgs.transpose(*transpose)[:, :, i, :]
 
             # this array is set to 0 for every transparent pixel, and 1 for the rest
             transparency_factor = np.ones_like(slice[:, :, 0], dtype=image.dtype)
@@ -888,8 +908,11 @@ class IStack(object):
         return image
 
     def show_top_view(self, ax=None, **kwargs):
-        "plots the top view generate with `get_top_view` (to which kwargs are passed)"
+        "plots the top view generated with `get_top_view` (to which kwargs are passed)"
         image = self.get_top_view(**kwargs)
+
+        i, j = kwargs.get('view', 'xy')
+        ratio = getattr(self, f'dpi_{j}') / getattr(self, f'dpi_{i}')
 
         if ax is None:
             f, ax = plt.subplots()
@@ -897,7 +920,7 @@ class IStack(object):
             f = ax.figure
 
         ax.imshow(image / 255)
-        ax.set_aspect(self.dpi_y / self.dpi_x)
+        ax.set_aspect(ratio)
 
         return f, ax
 
