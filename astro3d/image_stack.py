@@ -925,12 +925,15 @@ class IStack(object):
         })
         ax[1, 1].set_visible(False)
 
-        for _ax in ax.ravel():
-            _ax.axis('off')
-
         self.show_top_view(bg=bg, view='xy', ax=ax[0, 0])
         self.show_top_view(bg=bg, view='xz', ax=ax[1, 0])
         self.show_top_view(bg=bg, view='yz', ax=ax[0, 1])
+
+        for _ax in ax.ravel():
+            _ax.set_xticks([])
+            _ax.set_yticks([])
+            _ax.axes.get_xaxis().set_visible(False)
+            _ax.axes.get_yaxis().set_visible(False)
 
         f.subplots_adjust(hspace=0, wspace=0)
 
