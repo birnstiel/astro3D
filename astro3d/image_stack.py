@@ -870,40 +870,30 @@ class IStack(object):
             rendered image
         """
 
+        bg = (np.ones(3) * bg).astype(int)
+
         if view == 'xy':
-            transpose = [0, 1, 2, 3]
+            data = self.imgs
         elif view == 'xz':
-            transpose = [0, 2, 1, 3]
+            data = self.imgs.transpose(0, 2, 1, 3)
         elif view == 'yz':
-            transpose = [1, 2, 0, 3]
+            data = self.imgs.transpose(1, 2, 0, 3)
         else:
             raise ValueError('invalid view')
 
-        # which colors in stack.colors are to be treated as transparent
+        if backward:
+            i0 = data.shape[2]
+            i1 = 1  # fortran index!
+            step = -1
+        else:
+            i0 = 1  # fortran index!
+            i1 = data.shape[2]
+            step = 1
+
+            # which colors in stack.colors are to be treated as transparent
         empty_indices = empty_indices or self.empty_indices
 
-        # start with black background (white background would require substracting the inverse colors or so)
-        image = np.ones_like(self.imgs.transpose(*transpose)[:, :, 0, :], dtype=float) * bg
-
-        # this is the transfer function exp(-tau). We assume that about 7 pixels are tau=1
-        exp = np.exp(-1. / n_tauone)
-        trans_fct = exp * np.ones(image.shape[:2], dtype=image.dtype)
-
-        indices = np.arange(self.imgs.transpose(*transpose).shape[2])
-        if backward:
-            indices = indices[::-1]
-
-        for i in indices:
-            slice = self.imgs.transpose(*transpose)[:, :, i, :]
-
-            # this array is set to 0 for every transparent pixel, and 1 for the rest
-            transparency_factor = np.ones_like(slice[:, :, 0], dtype=image.dtype)
-            for i_t in empty_indices:
-                transparency_factor[(slice == self.colors[i_t]).all(-1)] = 1 / exp
-
-            _tf = trans_fct * transparency_factor
-
-            image = image * _tf[:, :, None] + (1 - _tf[:, :, None]) * slice
+        image = fmodule.top_view(data, i0, i1, step, n_tauone, self.colors[empty_indices], bg=bg)
 
         return image
 
@@ -911,16 +901,38 @@ class IStack(object):
         "plots the top view generated with `get_top_view` (to which kwargs are passed)"
         image = self.get_top_view(**kwargs)
 
-        i, j = kwargs.get('view', 'xy')
-        ratio = getattr(self, f'dpi_{j}') / getattr(self, f'dpi_{i}')
+        view = kwargs.get('view', 'xy')
+        ratio = getattr(self, f'dpi_{view[1]}') / getattr(self, f'dpi_{view[0]}')
 
         if ax is None:
             f, ax = plt.subplots()
         else:
             f = ax.figure
 
+        if view == 'xz':
+            image = image.transpose(1, 0, 2)
+            ratio = 1.0 / ratio
+
         ax.imshow(image / 255)
         ax.set_aspect(ratio)
+
+        return f, ax
+
+    def three_views(self, bg=[255] * 3):
+        f, ax = plt.subplots(2, 2, gridspec_kw={
+            'width_ratios': [1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[1] / self.dpi_y)],
+            'height_ratios': [1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[0] / self.dpi_x)],
+        })
+        ax[1, 1].set_visible(False)
+
+        for _ax in ax.ravel():
+            _ax.axis('off')
+
+        self.show_top_view(bg=bg, view='xy', ax=ax[0, 0])
+        self.show_top_view(bg=bg, view='xz', ax=ax[1, 0])
+        self.show_top_view(bg=bg, view='yz', ax=ax[0, 1])
+
+        f.subplots_adjust(hspace=0, wspace=0)
 
         return f, ax
 
