@@ -404,4 +404,44 @@ end do
 
 end subroutine mark_streamline
 
+subroutine top_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, nx, ny, nz, nempty)
+    implicit none
+    integer, intent(in) :: i0, i1, step, nx, ny, nz, n_tauone, nempty
+    integer, intent(in) :: data(nx, ny, nz, 3)
+    integer, intent(in) :: empty_colors(nempty, 3)
+    double precision, intent(in) :: bg(3)
+    double precision, intent(out) :: image(nx, ny, 3)
+    double precision :: slice(nx, ny, 3), factor1, tf
+
+    integer :: i, ix, iy, ie
+
+    do i = 1, 3
+        image(:, :, i) = bg(i)
+    enddo
+
+    factor1 = exp(-1d0 / n_tauone)
+
+    do i = i0, i1, step
+        slice = data(:, :, i, :)
+        !$OMP PARALLEL PRIVATE(tf, iy, ie) SHARED(image)
+        !$OMP DO
+        do ix = 1, nx
+            do iy = 1, ny
+                ! this array is set to 0 for every transparent pixel, and 1 for the rest
+                tf = factor1
+                do ie = 1, nempty
+                    if (all(slice(ix, iy, :) .eq. empty_colors(ie, :))) then
+                        tf = 1.0
+                    endif
+                enddo
+
+                image(ix, iy, :) = image(ix, iy, :) * tf + (1d0 - tf) * slice(ix, iy, :)
+            enddo
+        enddo
+        !$OMP END DO
+        !$OMP END PARALLEL
+    enddo
+end subroutine top_view
+
+
 end module
