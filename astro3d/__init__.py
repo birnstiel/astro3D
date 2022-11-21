@@ -7,11 +7,13 @@ from ._fortran import fmodule
 from . import lic
 
 from . import volrender
+from . import image_stack
 from .volrender import TransferFunction
 from .volrender import render_movie
 
 __all__ = [
     'volrender',
+    'image_stack',
     'fmodule',
     'lic',
     'Renderer',
