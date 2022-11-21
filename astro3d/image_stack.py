@@ -75,7 +75,7 @@ BaseWhite = np.array([220, 222, 216]) / 255
 
 def makeslice(iz, z2, f_interp, coords, norm, path,
               levels=None, sigmas=None, fill=1.0,
-              colors=None, f=None, bg=1.0, clip=[3.0, 3.0, 3.0],
+              colors=None, f=None, bg=1.0, clip=None,
               streamlines=None, radius=None):
     """
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
@@ -118,8 +118,8 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     norm : callable
         the normalization function that maps density to 0...1
 
-    path : str | Path
-        the path into which to store the images
+    path : str | Path | None
+        the path into which to store the images, if None, don't write it out
 
     levels : array
         array of `N_colors` float entries that define the density values of each color
@@ -166,7 +166,12 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
 
     """
 
-    path = Path(path)
+    sigmas = np.array(sigmas, ndmin=1)
+    if clip is None:
+        clip = np.inf
+
+    if path is not None:
+        path = Path(path)
 
     # update coordinates - only last entry changes
     _x, _y, _z = coords
@@ -227,9 +232,10 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     im = np.array(im).sum(0)
 
     # save as png
-    imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(255 * im))
+    if path is not None:
+        imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(255 * im))
 
-    return layer_dithered
+    return layer_dithered, im
 
 
 def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
@@ -455,6 +461,13 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     f : list
         the mixing fractions of each color. 1 by default for a single color.
     """
+    if clips is None:
+        clips = np.inf * np.ones_like(levels)
+
+    clips = np.array(clips, ndmin=1)
+    sigmas = np.array(sigmas, ndmin=1)
+    levels = np.array(levels, ndmin=1)
+
     bins = np.linspace(0, 1, 100)
     counts, _ = np.histogram(np.array(norm(data.ravel())), bins=bins)
 
@@ -474,7 +487,7 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     ax.set_ylim(ax.get_ylim())
 
     # if we do level-based coloring ....
-    if (levels is not None) and (sigmas is not None) and (clips is not None):
+    if (levels is not None) and (sigmas is not None):
         if colors is None:
             # get default colors
             colors = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()['color'][:len(levels)]])
