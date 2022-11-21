@@ -16,3 +16,4 @@ frame_*.jpg
 slice_*.png
 *.zip
 __pycache__/
+/docs/
