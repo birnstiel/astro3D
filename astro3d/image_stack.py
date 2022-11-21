@@ -464,18 +464,18 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     if clips is None:
         clips = np.inf * np.ones_like(levels)
 
-    clips = np.array(clips, ndmin=1)
-    sigmas = np.array(sigmas, ndmin=1)
-    levels = np.array(levels, ndmin=1)
-
     bins = np.linspace(0, 1, 100)
     counts, _ = np.histogram(np.array(norm(data.ravel())), bins=bins)
 
-    if colors is not None:
-        # mix colors
-        if f is None:
-            f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
-        mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
+    if levels is not None:
+        if colors is None:
+            # get default colors
+            mix = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()['color'][:len(levels)]])
+        else:
+            # mix colors
+            if f is None:
+                f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
+            mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
 
     fig, ax = plt.subplots(dpi=150)
 
@@ -488,9 +488,11 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
 
     # if we do level-based coloring ....
     if (levels is not None) and (sigmas is not None):
-        if colors is None:
-            # get default colors
-            colors = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()['color'][:len(levels)]])
+
+        clips = np.array(clips, ndmin=1)
+        sigmas = np.array(sigmas, ndmin=1)
+        levels = np.array(levels, ndmin=1)
+
         for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
             ax.axvline(_level, ls='--', c=mix[i])
 
@@ -731,7 +733,7 @@ class IStack(object):
 
     def replace_color(self, i_col, new_col):
         """Replaces the color of index `i_col` with the new color `new_col`."""
-        new_col = np.array(new_col)
+        new_col = np.array(new_col, dtype=self.imgs.dtype)
         mask = (self.imgs == self.colors[i_col][None, None, None, :]).all(-1)
         self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
         self.colors[i_col, :] = new_col
