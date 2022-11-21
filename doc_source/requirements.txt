@@ -1,0 +1,12 @@
+ipykernel
+jupyter
+matplotlib
+nbconvert
+nbsphinx
+numpy
+numpydoc
+recommonmark
+sphinx
+sphinx-automodapi
+sphinx_rtd_theme
+nbsphinx_link
