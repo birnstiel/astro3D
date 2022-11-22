@@ -7,6 +7,8 @@
 
 This package contains data, code, and notebooks to generate image stacks that can be 3D printed on Polyjet printers. See the [documentation](https://birnstiel.github.io/astro3D) for details.
 
+![](Figure_2.jpg)
+
 ## Volume rendering
 
 The package also includes some ability for volume rendering and line integral convolution plots for visualization.
