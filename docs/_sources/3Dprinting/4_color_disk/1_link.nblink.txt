@@ -1,0 +1,4 @@
+{
+    "path": "../../../../notebooks/1_3Dprinting/4_color_disk/1_pluto-dust_colored_image_stack.ipynb"
+}
+

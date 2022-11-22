@@ -1,0 +1,4 @@
+{
+    "path": "../../../../notebooks/1_3Dprinting/5_localbox/1_analyze_cosmobox.ipynb"
+}
+
