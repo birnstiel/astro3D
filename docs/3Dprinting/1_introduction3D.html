@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Introduction to printing 3D densities &mdash; astro3d 0.1 documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+        <script src="https://unpkg.com/@jupyter-widgets/html-manager@^0.20.1/dist/embed-amd.js"></script>
+        <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+        <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Slicing a turbulent box for 3D printing" href="1_turbulent_box/1_link.html" />
+    <link rel="prev" title="3D Printing" href="toctree.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+            <a href="../index.html" class="icon icon-home"> astro3d
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../1_link.html">Introduction</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="toctree.html">3D Printing</a><ul class="current">
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Introduction to printing 3D densities</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#General-Process">General Process</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#Printing">Printing</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#Printing-Companies">Printing Companies</a></li>
+<li class="toctree-l4"><a class="reference internal" href="#The-printing-process">The printing process</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#Polishing">Polishing</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="toctree.html#Turbulent-Box">Turbulent Box</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toctree.html#MHD-Disk-&amp;-Field-Lines">MHD Disk &amp; Field Lines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toctree.html#Colored-Dust-Disk">Colored Dust Disk</a></li>
+<li class="toctree-l2"><a class="reference internal" href="toctree.html#Local-Box">Local Box</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">astro3d</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
+          <li><a href="toctree.html">3D Printing</a> &raquo;</li>
+      <li>Introduction to printing 3D densities</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/3Dprinting/1_introduction3D.nblink.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  
+<style>
+/* CSS overrides for sphinx_rtd_theme */
+
+/* 24px margin */
+.nbinput.nblast.container,
+.nboutput.nblast.container {
+    margin-bottom: 19px;  /* padding has already 5px */
+}
+
+/* ... except between code cells! */
+.nblast.container + .nbinput.container {
+    margin-top: -19px;
+}
+
+.admonition > p:before {
+    margin-right: 4px;  /* make room for the exclamation icon */
+}
+
+/* Fix math alignment, see https://github.com/rtfd/sphinx_rtd_theme/pull/686 */
+.math {
+    text-align: unset;
+}
+</style>
+<section id="Introduction-to-printing-3D-densities">
+<h1>Introduction to printing 3D densities<a class="headerlink" href="#Introduction-to-printing-3D-densities" title="Permalink to this heading"></a></h1>
+<p>This package provides: - “raw” 3D data ready to be downloaded - notebooks to compute image stacks which can be printed for example with Stratasys PolyJet printers - the resulting image stacks for download - routines to estimate the print result, given an image stack - pictures of the resulting prints</p>
+<p>With this, we hope to make the process as transparent as possible such that these methods can be readily be applied for outreach or education purposes, not only for the given data sets but for any research that provides 3D data.</p>
+<section id="General-Process">
+<h2>General Process<a class="headerlink" href="#General-Process" title="Permalink to this heading"></a></h2>
+<p>The entire process usually involves these steps:</p>
+<ol class="arabic simple">
+<li><p><strong>Defining a norm</strong>: the norm maps the given 3D densities to a color. This can be a logarithmic map or it could map certain density ranges to different colors.</p></li>
+<li><p><strong>Interpolation</strong>: the printer and data dimension and aspect ratio usually does not correspond to each other. This means that for a given print dimension, the value for each printed volume element (voxel) needs to be computed by interpolation.</p></li>
+<li><p><strong>Dithering</strong>: the printer cannot print different levels of color/brightness, but instead needs to assign one material to each volume element. Brightness/Color therefore needs to be represented by dithering. For example printing gray color could be achieved by alternating between white and black material.</p></li>
+<li><p><strong>Iteration</strong>: all this needs to be done for every printed layer. This will result in one image for each layer.</p></li>
+<li><p><strong>Printing</strong>: This can be printed with the voxel print utility of GrabCad on a Stratasys PolyJet printer.</p></li>
+<li><p><strong>Polishing</strong>: usually the prints need to be polished to achieve a transparent surface.</p></li>
+</ol>
+<p>Items 1 through 4 will be discussed in the notebooks. As a start, see <a class="reference external" href="1_turbulent_box/1_link.html">turbulent box</a> for an introduction to those processes. The notebook <a class="reference external" href="4_color_disk/1_link.html">color disk</a> covers these points but shows how different densities can be color-coded.</p>
+<p>All examples also include a notebook that shows how an image stack can be analyzed in order to predict the printed output.</p>
+</section>
+<section id="Printing">
+<h2>Printing<a class="headerlink" href="#Printing" title="Permalink to this heading"></a></h2>
+<section id="Printing-Companies">
+<h3>Printing Companies<a class="headerlink" href="#Printing-Companies" title="Permalink to this heading"></a></h3>
+<p>The image stacks produced in this process are the input for the printing process. This is carried out with the <a class="reference external" href="https://www.grabcad.com">GRABCAD</a> software on a Stratasys PolyJet printer, however this requires the Voxel Printing Utility which not many printing companies can offer.</p>
+<p>For convenience, we provide a list of companies that have this capability. If you know more (especially in other countries), let us know!</p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://fit.technology">FIT</a></p></li>
+<li><p><a class="reference external" href="https://www.alphacam.de">Alphacam</a></p></li>
+</ul>
+<p>Printing with such companies can be expensive (e.g. a 5 cm cube can cost of the order of 800 €). Ideally one can find other science users within the science/education sector that are able to share access to a printer. The material costs for such a cube with an educational license can be more than an order of magnitude cheaper than commercial providers.</p>
+</section>
+<section id="The-printing-process">
+<h3>The printing process<a class="headerlink" href="#The-printing-process" title="Permalink to this heading"></a></h3>
+<p>The process within the software follows the PNG printing process described <a class="reference external" href="https://help.grabcad.com/article/230-guide-to-voxel-printing?locale=en">here</a>. In short: on the <em>first screen</em> the folder with the images is selected along with the stem of the file name (see below), and a background color can be defined. On a <em>second screen</em>, each color that appears in the image stack will be assigned a printer material. As such the actual colors have no meaning (blue pixels could be assigned yellow
+material), but it makes it easier to use corresponding colors to avoid confusion.</p>
+<p>Things to watch out for:</p>
+<ul>
+<li><p>All images of the image stack should be in one folder, ideally with no other files around to avoid issues.</p></li>
+<li><p>The file names should follow the template <code class="docutils literal notranslate"><span class="pre">[stem]_0001.png</span></code> or <code class="docutils literal notranslate"><span class="pre">[stem]_1234.png</span></code></p></li>
+<li><p>The color space should be 32-bit RGB or RGBA</p></li>
+<li><p>By default, black (<code class="docutils literal notranslate"><span class="pre">[0,0,0]</span></code>) is set to be the background (=no material).</p>
+<p>This means that on the second window of the voxel printing utility the black pixels cannot be assigned a material. This can be changed on the first screen by changing the default background color. This can, for example, be a color that is not present in the files. To avoid issues with the printing company (they might be unaware of this), it is best to not use black in the PNGs unless this should be empty space. Better assign a very dark gray (e.g. <code class="docutils literal notranslate"><span class="pre">[1,1,1]</span></code>) which will then not be taken as
+background by default but still show up as basically black in the material selection screen.</p>
+</li>
+</ul>
+</section>
+</section>
+<section id="Polishing">
+<h2>Polishing<a class="headerlink" href="#Polishing" title="Permalink to this heading"></a></h2>
+<p>The resulting print is automatically surrounded by support material which needs to be removed. The resulting surface of the print is somewhat rough and thus not transparent. The surfaces need to be polished. This can be done by sandpaper of increasing grit, starting with something rough (100 - 200) but going up to high grids (few 1000). For full transparency, some polishing paste or chalk needs to be used. Most companies that offer any polishing services (e.g. for metals) can easily do this. As
+reference value, we paid 180 € for polishing of 4 cubic structures.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="toctree.html" class="btn btn-neutral float-left" title="3D Printing" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="1_turbulent_box/1_link.html" class="btn btn-neutral float-right" title="Slicing a turbulent box for 3D printing" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2022, Til Birnstiel.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
