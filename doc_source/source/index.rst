@@ -9,17 +9,8 @@
    :caption: Contents:
 
    
-   3Dprinting/1_link.nblink
+   1_link.nblink
    3Dprinting/toctree
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
 
 
 Indices and tables
