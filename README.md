@@ -7,7 +7,7 @@
 
 This package contains data, code, and notebooks to generate image stacks that can be 3D printed on Polyjet printers. See the [documentation](https://birnstiel.github.io/astro3D) for details.
 
-![](Figure_2.jpg)
+![](figures/Figure_2.jpg)
 
 ## Volume rendering
 
@@ -23,4 +23,4 @@ or this:
 
 This should produce a volume rendering of the given data like this:
 
-![](Figure_1.png)
+![](figures/Figure_1.png)
