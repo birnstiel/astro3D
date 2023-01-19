@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 from matplotlib.colors import LogNorm, Normalize, to_rgb, LinearSegmentedColormap
 from scipy.interpolate import interpn
+from scipy.interpolate import RegularGridInterpolator
 from tqdm.auto import tqdm
 
 from skimage.io import imread_collection
@@ -81,10 +82,24 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
     a file `slice_{iz:04d}.png` in the folder `path`.
 
-    Several regions in density-space can be selected, each is defined by its entry in:
+    There are two ways:
+    - A) a direct mapping of `normalized density -> color density`.
+    - B) volumetric contours where the color density is scaled with a Gaussian
+         distribution around a given density value.
+
+    Method A)
+    ---------
+
+    No kewords need to be given to use that method.
+
+    Method B)
+    ---------
+
+    Several regions in density-space can be highlighted, each is defined by its entry in:
     - `levels` = the position in the normalized density (=when `norm` is applied to the
        density) where this color is applied
-    - `sigmas` = the width of the gaussian region in normalized density
+    - `sigmas` = the width of the gaussian region in normalized density. If a negative value
+       is given, it falls back to method A) for just that color.
     - `fill` = the filling factors of the density. If a normalized density value is exactly
        equal to an entry in `levels`, this cell will be always filled if its value in `fill`
        is 1. If it is 0.5, it will be filled with approximately 50% probablility.
@@ -182,13 +197,17 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
 
     # normalize data
     layer_norm = np.array(norm(new_layer))
+    layer_norm[np.isnan(layer_norm)] = 0.0
 
     if levels is not None:
         # compute the different density contours (but exclude 0.0 which should never be colored)
         dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
         dist_sq[layer_norm == 0.0] = np.inf
         dist_sq[dist_sq > np.array(clip)**2] = np.inf
-        color_density = 1. / (1 + dist_sq) * fill
+        color_density = 1. / (1 + dist_sq)
+
+        # the negative sigmas will be replaced with method A)
+        color_density[:, :, np.array(sigmas) < 0] = layer_norm[..., None]
     else:
         # we are not using the levels, but the density directly
         color_density = layer_norm
@@ -238,7 +257,7 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     return layer_dithered, im
 
 
-def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slices',
+def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices',
             norm=None, pool=None, vmin=None, vmax=None, iz=None):
     """produce the image stack for 3D printing the given dataset
 
@@ -258,7 +277,7 @@ def process(data, height=10, dpi_x=600, dpi_y=600, dpi_z=1200, output_dir='slice
         path of output directory, by default 'slices'
     norm : norm or None or str, optional
         use the given norm,
-        or a lognorm if set to 'log' or None
+        or a log norm if set to 'log' or None
         or linear norm if set to 'lin', by default None
     pool : None or pool object, optional
         pool for parallel processing, by default None
@@ -395,13 +414,14 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     If a list of colors and a list of `f`s are given, then `orig_color``
     is replaced with that mix of colors.
 
-    if `inplace` is `True`, then we are replacing colors in an image of matching shape
-    and could leave the rest of the image as it is. This could replace a single
-    color in the image with another color.
+    if `inplace` is `True`, then we are replacing colors in an image (of 
+    shape of `(nx, ny, 3)`) and could leave the rest of the image as it is.
+    This could replace a single color in the image with another color.
 
-    if `inplace` is false, the shape does not need to match, for example if we want to construct an
-    image from more or less than 3 layers. For 2 layers, the input information is `(nx, ny, 2)` but
-    the image should be `(nx, ny, 3)`, for example.
+    if `inplace` is false, the shape does not need to match. For example the
+    input array could be of shape `(nx, ny, 2)`, where a "color" could be `[0, 1]`.
+    That colors would then be replaced with the given RGB values such that the output
+    image is again of shape `(nx, ny, 3)`.
     """
 
     # all pixels matching that color with that mask
@@ -424,8 +444,11 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     n_col = repl_cols.shape[0]
 
     if n_col == 1:
+        # if there is just one color, we can directly replace that
         im_repl = np.where(color_mask[:, :, None], repl_cols[0, None, None], im)
     else:
+        # if a color is to be replaced by a mix of multiple colors,
+        # then we do this randomly.
         rand_idx = np.random.rand(*color_mask.shape)
         im_repl = im.copy()
 
@@ -607,6 +630,53 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
+def _convert_image(fname, width, dx, dy, height=None):
+    """converts an image file to a grid that matches an image stack
+
+    Parameters
+    ----------
+    fname : str | pathlib.Path
+        path to the image file
+    width : float
+        width of the final logo in cm
+    dx : float
+        voxel width
+    dy : float
+        voxel heigh
+    height : float, optional
+        height of the final log in cm, by default the aspect ratio is kept
+
+    Returns
+    -------
+    array
+        a mask where the logo will be applied
+    """
+
+    # Read image
+    im = imageio.v3.imread(fname)
+    im = np.array(im).mean(-1)  # we make it 1 value instead of 3 (RGB)
+    im = im > im.mean()  # we make it binary
+    im = im.T[:, ::-1]   # we change the axis to have (0,0) in the first entry
+
+    # if height not given: keep aspect ratio
+    height = height or width / im.shape[0] * im.shape[1]
+
+    # original image coordinates in cm from lower left
+    x_img = np.linspace(0, width, im.shape[0])
+    y_img = np.linspace(0, height, im.shape[1])
+
+    # new grid: same extent with right number of steps
+    x_stack = np.arange(0, np.ceil(width / dx) * dx, dx)
+    y_stack = np.arange(0, np.ceil(height / dy) * dy, dy)
+
+    # interpolate
+    f = RegularGridInterpolator((x_img, y_img), im, method='nearest')
+    X, Y = np.meshgrid(x_stack, y_stack, indexing='ij', sparse=True)
+    im2 = f((X, Y))
+
+    return im2
+
+
 class IStack(object):
     def __init__(self, directory, dpi_x, dpi_y, dz):
         self.directory = Path(directory)
@@ -678,9 +748,14 @@ class IStack(object):
     def _get_colors(self, N=10):
         """Get all colors present in a random sub-sample of N slices.
         """
-        print(f'getting colors from {N} sample images ... ', flush=True, end='')
-        idx = np.random.randint(0, high=self.nz - 1, size=N)
-        self._colors = check_colors(self.imgs[:, :, idx, :])
+        if N < 0:
+            print('getting colors from all images ... ', flush=True, end='')
+            self._colors = check_colors(self.imgs)
+        else:
+            print(f'getting colors from {N} sample images ... ', flush=True, end='')
+            idx = np.random.randint(0, high=self.nz - 1, size=N)
+            self._colors = check_colors(self.imgs[:, :, idx, :])
+
         self._ncol = len(self._colors)
         print('Done!')
 
@@ -987,6 +1062,46 @@ class IStack(object):
         self.nx, self.ny, self.nz = self.imgs.shape[:-1]
 
         self._counts = None
+
+    def add_logo_xz(self, fname, pos, width, depth, height=None, col=[0, 0, 0]):
+        """adds a logo based on an image file to the image stack
+
+        Parameters
+        ----------
+        fname : str | pathlib.Path
+            file name of the logo image
+        pos : array
+            position of the logo in x, y, z in units of cm
+        width : float
+            logo width in cm
+        depth : float
+            depth of the image in cm
+        height : float, optional
+            height of logo, by default None
+        col : list, optional
+            color to be assigned at dark parts of logo, by default [0, 0, 0]
+        """
+
+        # convert image
+        im2 = _convert_image(fname, width, self.dx, self.dz, height=height)
+
+        # we need to flip it to apply it properly
+        im2 = im2[:, ::-1]
+
+        # how many x-cells should be filled?
+        ny = round(depth / self.dy)
+
+        # convert position from cm to index
+        p0 = (pos / np.array([self.dx, self.dy, self.dz])).astype(int)
+
+        # define a matching-size view into the stack
+        slice = self.imgs[p0[0]:p0[0] + im2.shape[0], p0[1]:p0[1] + ny, p0[2]:p0[2] + im2.shape[1]]
+
+        # where the image is dark: we set to the color
+        res = np.where(im2[:, None, :, None], slice, np.array(col)[None, None, None, :])
+
+        # assign this array to the original image stack
+        slice[...] = res
 
     def save(self, i, path='.'):
         """write image layer i to `path`
