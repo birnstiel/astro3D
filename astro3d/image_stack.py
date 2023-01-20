@@ -399,8 +399,35 @@ def index_lookup(img, palette):
     return ix[np.searchsorted(p1d, img @ M)]
 
 
-def check_colors(im):
-    colors = np.unique(im.reshape(-1, im.shape[-1]), axis=0)
+def check_colors(imgs, stride=5, nmax=8):
+    """Finds a list of unique colors in the given stack using the fortran module.
+
+    Parameters
+    ----------
+    imgs : np.ndarray
+        image stack, (nx, ny, nz, nc), nc is usually 3 for RGB, 4 for RGBA should work too.
+    stride : int, optional
+        use only every Nth image, by default 5 which is a bit of a balance of speed and accuracy.
+        If you have few narrow points of colors, you might need to really check everything (stride=1)
+        If the stack is mostly uniform and checking just a few images is enough, you can go closer to
+        stride=nz.
+    nmax : int, optional
+        how many colors can be detected, by default 8
+        we need an estimate of how many colors should be in the image
+        as the fortran->python interface f2py cannot do allocatable arrays
+
+    Returns
+    -------
+    colors, list of colors found
+    """
+    if imgs.ndim == 3:
+        imgs = imgs[:, :, None, :]
+
+    ncol, colors = fmodule.get_colors(imgs[:, :, ::stride, :].astype(int), nmax)
+
+    # this returns the numbers of colors and an array of length nmax
+    # so we need to pick
+    colors = colors[:ncol, :]
 
     # we sort them "alphabetically", so white should be on the bottom
     colors = colors[np.lexsort(np.fliplr(colors).T)]
@@ -745,17 +772,10 @@ class IStack(object):
             self._get_colors()
         return len(self.colors)
 
-    def _get_colors(self, N=10):
+    def _get_colors(self, stride=5):
         """Get all colors present in a random sub-sample of N slices.
         """
-        if N < 0:
-            print('getting colors from all images ... ', flush=True, end='')
-            self._colors = check_colors(self.imgs)
-        else:
-            print(f'getting colors from {N} sample images ... ', flush=True, end='')
-            idx = np.random.randint(0, high=self.nz - 1, size=N)
-            self._colors = check_colors(self.imgs[:, :, idx, :])
-
+        self._colors = check_colors(self.imgs, nmax=8, stride=stride)
         self._ncol = len(self._colors)
         print('Done!')
 
