@@ -56,22 +56,22 @@ def cmyk_to_rgb(CMYK):
 
 
 # define the rigid Vero™ colors
-VeroT_sRGB = np.array([255, 255, 255]) / 255
-VeroC_sRGB = np.array([29, 85, 111]) / 255
-VeroM_sRGB = np.array([149, 39, 87]) / 255
-VeroY_sRGB = np.array([192, 183, 52]) / 255
+VeroT_sRGB = np.array([255, 255, 255])
+VeroC_sRGB = np.array([29, 85, 111])
+VeroM_sRGB = np.array([149, 39, 87])
+VeroY_sRGB = np.array([192, 183, 52])
 
 # define the RGB values of CMY
-C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0])) / 255
-M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0])) / 255
-Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0])) / 255
+C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0]))
+M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0]))
+Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0]))
 
 # colors defined in the VoxelPrinting Guide
-BaseCyan = np.array([0, 89, 158]) / 255
-BaseMagenta = np.array([161, 35, 99]) / 255
-BaseYellow = np.array([213, 178, 0]) / 255
-BaseBlack = np.array([30, 30, 30]) / 255
-BaseWhite = np.array([220, 222, 216]) / 255
+BaseCyan = np.array([0, 89, 158])
+BaseMagenta = np.array([161, 35, 99])
+BaseYellow = np.array([213, 178, 0])
+BaseBlack = np.array([30, 30, 30])
+BaseWhite = np.array([220, 222, 216])
 
 
 def makeslice(iz, z2, f_interp, coords, norm, path,
@@ -436,7 +436,7 @@ def check_colors(imgs, stride=5, nmax=8):
 
 
 def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
-    """replaces `orig_color` with `repl_col`.
+    """replaces `orig_color` with `repl_col` in an image.
 
     If a list of colors and a list of `f`s are given, then `orig_color``
     is replaced with that mix of colors.
@@ -697,7 +697,7 @@ def _convert_image(fname, width, dx, dy, height=None):
     y_stack = np.arange(0, np.ceil(height / dy) * dy, dy)
 
     # interpolate
-    f = RegularGridInterpolator((x_img, y_img), im, method='nearest')
+    f = RegularGridInterpolator((x_img, y_img), im, method='nearest', bounds_error=False, fill_value=255.0)
     X, Y = np.meshgrid(x_stack, y_stack, indexing='ij', sparse=True)
     im2 = f((X, Y))
 
@@ -832,6 +832,32 @@ class IStack(object):
         mask = (self.imgs == self.colors[i_col][None, None, None, :]).all(-1)
         self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
         self.colors[i_col, :] = new_col
+
+    def replace_color_mix(self, i_col, repl_colors, f=[1]):
+        """Replaces the color at index `i_col` with a *mix* of new colors.
+
+        This is slower than `replace_color`, but can randomly mix different colors
+        with mixing ratios defined in `f`.
+
+        Parameters
+        ----------
+        i_col : int
+            index of the color to be replaces within self.colors
+        repl_colors : list of colors
+            the colors that should replace the original color. the relative
+            abundance of each is given by `f`.
+        f : list of floats, optional
+            the mixing ratios of the colors, should add to 1, by default [1]
+        """
+        if len(f) != len(repl_colors):
+            raise ValueError('Each new color needs a relative abundance given in `f`.')
+        for iz in range(self.nz):
+            self.imgs[:, :, iz, :] = color_replace(
+                self.imgs[:, :, iz, :],
+                self.colors[i_col],
+                repl_colors,
+                f=f,
+                inplace=True)
 
     def show_histogram(self, empty_indices=None):
         """Shows a histogram of all non-transparent materials.
