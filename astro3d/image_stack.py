@@ -62,9 +62,9 @@ VeroM_sRGB = np.array([149, 39, 87])
 VeroY_sRGB = np.array([192, 183, 52])
 
 # define the RGB values of CMY
-C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0]))
-M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0]))
-Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0]))
+C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0])).astype(int)
+M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0])).astype(int)
+Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0])).astype(int)
 
 # colors defined in the VoxelPrinting Guide
 BaseCyan = np.array([0, 89, 158])
@@ -74,9 +74,218 @@ BaseBlack = np.array([30, 30, 30])
 BaseWhite = np.array([220, 222, 216])
 
 
+def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None, clip=None):
+    """
+    Computes the color density of one slice of the data (index `iz` within new z-grid `z2`).
+
+    There are two ways:
+    - A) a direct mapping of `normalized density -> color density`.
+    - B) volumetric contours where the color density is scaled with a Gaussian
+         distribution around a given density value.
+
+    Method A)
+    ---------
+
+    No kewords need to be given to use that method.
+
+    Method B)
+    ---------
+
+    Several regions in density-space can be highlighted, each is defined by its entry in:
+    - `levels` = the position in the normalized density (=when `norm` is applied to the
+       density) where this color is applied
+    - `sigmas` = the width of the gaussian region in normalized density. If a negative value
+       is given, it falls back to method A) for just that color.
+    - `fill` = the filling factors of the density. If a normalized density value is exactly
+       equal to an entry in `levels`, this cell will be always filled if its value in `fill`
+       is 1. If it is 0.5, it will be filled with approximately 50% probablility.
+       This is used to make the colored regions less opaque.
+
+    Note: the normalized density values are derived by calling `norm(density)` which should
+    map the density values to [0 ... 1]. To do the inverse, for example to compute which
+    density corresponding to a normalized value of 0.4, one can use the inverse of the norm
+    like this: `rho = norm.inverse(0.4)` or `rho = norm.inverse([0.4, 0.6]).data` for an array.
+
+    Note: the coordinates and interpolation function should work like this:
+            # coords contains the arrays
+            _x, _y, _z = coords
+            # z coordinate is replaced every time
+            _z = z2[iz]
+            # _x, _y, _z are transformed in a (N, 3) array and passed to the interpolation
+            new_layer = f_interp(_coords)[:, :, 0].T
+
+    iz : int
+        slice index within `z2`
+
+    z2 : array
+        the new vertical coordinate array
+
+    f_inter : callable
+        the interpolation function taking the coordinates as a (N, 3) array (N points)
+
+    norm : callable
+        the normalization function that maps density to 0...1
+
+    path : str | Path | None
+        the path into which to store the images, if None, don't write it out
+
+    levels : array
+        array of `N_colors` float entries that define the density values of each color
+
+    sigmas : array
+        array of `N_colors` floats that describe the density width
+
+    clip : array
+        after how many sigmas to clip the color density
+
+    Returns:
+
+    color_density : np.ndarray
+        0.0 ... 1.0 - normalized color density, i.e. how much color should be printed where
+    """
+
+    sigmas = np.array(sigmas, ndmin=1)
+    if clip is None:
+        clip = np.inf
+
+    if path is not None:
+        path = Path(path)
+
+    # update coordinates - only last entry changes
+    _x, _y, _ = coords
+    coords2 = np.array(np.meshgrid(_x, _y, z2[iz])).squeeze().reshape(3, -1).T
+
+    # interpolate: note that we transpose as this is how the image will be safed
+    new_layer = f_interp(coords2).reshape(len(_y), len(_x))
+
+    # normalize data
+    layer_norm = np.array(norm(new_layer))
+    layer_norm[np.isnan(layer_norm)] = 0.0
+
+    if levels is not None:
+        # compute the different density contours (but exclude 0.0 which should never be colored)
+        dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
+        dist_sq[layer_norm == 0.0] = np.inf
+        dist_sq[dist_sq > np.array(clip)**2] = np.inf
+        color_density = 1. / (1 + dist_sq)
+
+        # the negative sigmas will be replaced with method A)
+        color_density[:, :, np.array(sigmas) < 0] = layer_norm[..., None]
+    else:
+        # we are not using the levels, but the density directly
+        color_density = layer_norm
+
+    return color_density
+
+
+def add_streamlines(coords, z2, iz, layer_dithered, streamlines, radius=None):
+    """adds streamlines to a dithered layer as a new material.
+
+    Parameters
+    ----------
+    coords : tuple
+        the coordinates (x, y, z) of the layer
+    z2 : array
+        the new
+    iz : _type_
+        _description_
+    layer_dithered : array
+        the `(nx, ny, n_material)`-sized material assignment for every pixel
+        so that `layer_dithered[nx,ny, :] = [0,1,0] would mean that the second of three materials
+        is assigned to pixel `(nx, ny)`.
+    streamlines : list of arrays
+        each element in the list is a `(n,3)` sized array with the 3D positions of `n` points of a streamline.
+    radius : float, optional
+        with of the streamline, by default 2.5
+
+    Returns
+    -------
+    layer_dithered
+        new layer_dithered that has now the streamlines as extra material
+    """
+
+    # begin adding streamlines ---
+    _x, _y, _ = coords
+    radius = radius or 2.5 * np.diff(_x)[0]
+    mask = np.zeros([len(_y), len(_x)], dtype=bool)
+
+    for line in streamlines:
+        mask = mask | fmodule.mark_streamline(_x, _y, z2[iz], radius, line).T
+
+    # clear other materials where the mask is true
+    # and attach the streamlines as new material
+    layer_dithered = np.where(mask[:, :, None], 0, layer_dithered)
+    layer_dithered = np.concatenate((layer_dithered, mask[:, :, None]), axis=-1)
+
+    return layer_dithered
+
+
+def layers2image(layer_dithered, path, iz, colors=None, f=None, bg=255):
+    """Convert a (nx, ny, n_materials)-sized layer to an (nx, ny, 3)-sized image
+
+    Parameters
+    ----------
+    layer_dithered : numpy.ndarray
+        the assignments of materials: for each pixel (nx, ny), the
+        assigment of materials, for example [0,1] assigns the second
+        of two materials.
+    path : str | path | None
+        output path of the folder where the image files will be stored
+        image will not be stored as file if it is `None`, just returned
+    iz : integer
+        running index that is appended to the file stem
+    colors : list | array
+        list (or array) or list of lists of RGB colors, by default grayscale will be used.
+        for each material (in `n_materials`), either
+            - a single color (and an entry of `[1]` in the `f` array), or
+            - a list of colors (and mixing ratios in the `f` array) need to be given.
+
+        For example `colors = [[1,1,1], [[1, 0, 0], [0, 1, 0]]]`, and `f=[[1], [0.2, 0.8]]`
+        will assign white to the first material and will dither the second material with 20%
+        red and 80% green.
+    f : list, optional
+        mixing ratio for each color, see above
+
+    bg : int, optional
+        _description_, by default 1
+
+    Returns
+    -------
+    np.ndarray
+        `(nx, ny, 3)` sized image
+    """
+    # handle colors and f
+    n_level = layer_dithered.shape[-1]
+    if colors is None:
+        colors = np.linspace(0.0, 1.0, n_level)[:, None] * np.ones(3)[None, :]
+        colors = (255 * colors).astype(int)
+    if f is None:
+        f = np.ones(n_level)
+
+    # now replace the colors
+    im = []
+
+    old_colors = np.eye(n_level, dtype=int)
+
+    for col_o, col_n, _f in zip(old_colors, colors, f):
+        im += [color_replace(layer_dithered, col_o, col_n, f=_f)]
+
+    # replace the background
+    bg = bg * np.ones(3, dtype=int)
+    im += [color_replace(layer_dithered, np.zeros(n_level, dtype=int), bg)]
+
+    im = np.array(im).sum(0).astype(np.uint8)
+
+    # save as png
+    if path is not None:
+        imageio.imwrite(path / f'slice_{iz:04d}.png', im)
+
+    return im
+
+
 def makeslice(iz, z2, f_interp, coords, norm, path,
               levels=None, sigmas=None, fill=1.0,
-              colors=None, f=None, bg=1.0, clip=None,
+              colors=None, f=None, bg=255, clip=None,
               streamlines=None, radius=None):
     """
     Prints out one slice of the data (index `iz` within grid `z2`) and stores it as
@@ -148,7 +357,7 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
     clip : array
         after how many sigmas to clip the color density
 
-    colors : TBD
+    colors : list (or list of lists) of colors
         material mixing ratios: each density will be displayed as one color, but each color
         might be a mix of several materials, for example a 50/50 mix of VeroYellow™ and VeroCyan™
         will give a dark green.
@@ -181,78 +390,62 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
 
     """
 
-    sigmas = np.array(sigmas, ndmin=1)
-    if clip is None:
-        clip = np.inf
+    color_density = density2color(
+        iz, z2, f_interp, coords, norm, path,
+        levels=levels, sigmas=sigmas, clip=clip)
 
-    if path is not None:
-        path = Path(path)
+    # create the dithered images
+    layer_dithered = fmodule.dither_colors(color_density * fill).astype(int)
 
-    # update coordinates - only last entry changes
-    _x, _y, _z = coords
-    coords2 = np.array(np.meshgrid(_x, _y, z2[iz])).squeeze().reshape(3, -1).T
+    # add streamlines
+    if streamlines is not None:
+        layer_dithered = add_streamlines(coords, z2, iz, layer_dithered, streamlines, radius=radius)
 
-    # interpolate: note that we transpose as this is how the image will be safed
-    new_layer = f_interp(coords2).reshape(len(_y), len(_x))
+    im = layers2image(layer_dithered, path, iz, colors=colors, f=f, bg=bg)
 
-    # normalize data
-    layer_norm = np.array(norm(new_layer))
-    layer_norm[np.isnan(layer_norm)] = 0.0
+    return layer_dithered, im
 
-    if levels is not None:
-        # compute the different density contours (but exclude 0.0 which should never be colored)
-        dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
-        dist_sq[layer_norm == 0.0] = np.inf
-        dist_sq[dist_sq > np.array(clip)**2] = np.inf
-        color_density = 1. / (1 + dist_sq)
 
-        # the negative sigmas will be replaced with method A)
-        color_density[:, :, np.array(sigmas) < 0] = layer_norm[..., None]
-    else:
-        # we are not using the levels, but the density directly
-        color_density = layer_norm
+def makeslice_from_colordensity(path, color_density, iz, fill=1.0, colors=None, f=None, bg=255):
+    """
+    Given a normalized color density of shape `(nx, ny, n_materials)`, dither, assign colors, and
+    store as a file `slice_{iz:04d}.png` in the folder `path`.
+
+    path : str | Path | None
+        the path into which to store the images, if None, don't write it out
+    color_density : array
+        at each pixel `(nx, ny)` a density value, normalized to 0.0 ... 1.0.
+    iz : int
+        image is stored in the directory `path` as file `slice_0001.png` if `iz=1`
+    fill : float | array
+        float or array of  `N_colors` floats that describe the filling factor of each color
+    colors : list (or list of lists) of colors
+        material mixing ratios: each density will be displayed as one color, but each color
+        might be a mix of several materials, for example a 50/50 mix of VeroYellow™ and VeroCyan™
+        will give a dark green.
+
+        After each density-level is dithered (i.e. three images that have no overlapping filled pixels),
+        each density can be translated to a mix of materials to create material-mixed colors.
+
+        Thus every component needs a list of colors, even if there is just one color. If less colors are given,
+        then the remaining components are not replaced.
+    f : list
+        a list of mixing fractions for each color.
+        - If `colors` is for example `[[VeroCyan]]`, then `f` should be `[[1.0]]` which means
+          that the entire first component is VeroCyan.
+        - If `colors` is `[[VeroCyan, VeroMagenta], [VeroCyan]]`, `f` could look like `[[0.2, 0.8], [1.0]]`
+        which means that the first component is 20% Cyan, 80% Magenta, and the second component is 100% Cyan.
+    bg : array
+        The background fill level, default=1 (white)
+
+    returns
+    im : np.ndarray of the image
+    """
 
     # create the dithered images
     layer_dithered = fmodule.dither_colors(color_density * fill)
 
-    # --- begin adding streamlines ---
-    if streamlines is not None:
-        radius = radius or 2.5 * np.diff(_x)[0]
-        mask = np.zeros([len(_y), len(_x)], dtype=bool)
-
-        for line in streamlines:
-            mask = mask | fmodule.mark_streamline(_x, _y, z2[iz], radius, line).T
-
-        # clear other materials where the mask is true
-        # and attach the streamlines as new material
-        layer_dithered = np.where(mask[:, :, None], 0.0, layer_dithered)
-        layer_dithered = np.concatenate((layer_dithered, mask[:, :, None]), axis=-1)
-    # --- end streamlines ---
-
-    # handle colors and f
-    n_level = layer_dithered.shape[-1]
-    if colors is None:
-        colors = np.linspace(0.0, 1.0, n_level)[:, None] * np.ones(3)[None, :]
-    if f is None:
-        f = np.ones(n_level)
-
-    # now replace the colors
-    im = []
-
-    old_colors = np.eye(n_level)
-
-    for col_o, col_n, _f in zip(old_colors, colors, f):
-        im += [color_replace(layer_dithered, col_o, col_n, f=_f)]
-
-    # replace the background
-    bg = bg * np.ones(3)
-    im += [color_replace(layer_dithered, np.zeros(n_level), bg)]
-
-    im = np.array(im).sum(0)
-
-    # save as png
-    if path is not None:
-        imageio.imwrite(path / f'slice_{iz:04d}.png', np.uint8(255 * im))
+    im = layers2image(layer_dithered, path, iz, colors=colors, f=f, bg=bg)
 
     return layer_dithered, im
 
@@ -544,18 +737,21 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
         levels = np.array(levels, ndmin=1)
 
         for i, (_level, _sig, _clip) in enumerate(zip(levels, sigmas, clips)):
-            ax.axvline(_level, ls='--', c=mix[i])
+            _col = mix[i]
+            if _col.max() > 1:
+                _col = _col / 255
+            ax.axvline(_level, ls='--', c=_col)
 
             _y = 10**(np.mean(np.log10(ax.get_ylim())) * (1 + 0.1 * i))
 
             ax.errorbar(_level, _y,
                         xerr=[
                             [_sig],
-                            [_sig]], c=mix[i], capsize=5)
+                            [_sig]], c=_col, capsize=5)
             ax.errorbar(_level, _y,
                         xerr=[
                             [_clip * _sig],
-                            [_clip * _sig]], c=mix[i], capsize=5, alpha=0.5)
+                            [_clip * _sig]], c=_col, capsize=5, alpha=0.5)
 
         # estimate the filling factor
         dn = np.array(norm(data.ravel())).reshape(data.shape)
@@ -979,7 +1175,7 @@ class IStack(object):
         ax.set_xlabel('count')
         return f, ax
 
-    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[0, 0, 0], view='xy', backward=False):
+    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[255, 255, 255], view='xy', backward=False):
         """computes an approximate render view from top, assuming the optical depth is around `n_tauone` pixels.
 
         Parameters
