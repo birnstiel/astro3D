@@ -2,10 +2,11 @@ from pathlib import Path
 from itertools import repeat, cycle
 import imageio
 from colorsys import rgb_to_hsv
+from functools import lru_cache
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import ticker
+from matplotlib import ticker, gridspec
 from matplotlib.colors import LogNorm, Normalize, to_rgb, LinearSegmentedColormap
 from scipy.interpolate import interpn
 from scipy.interpolate import RegularGridInterpolator
@@ -853,13 +854,16 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
-def _convert_image(fname, width, dx, dy, height=None):
+def _convert_image(image, width, dx, dy, height=None, threshold=None):
     """converts an image file to a grid that matches an image stack
 
     Parameters
     ----------
-    fname : str | pathlib.Path
-        path to the image file
+    image : str | pathlib.Path | np.ndarray
+        path to the image file or array with image data
+        if image data is 3D (shape=(nx, ny, 3)), it will be converted
+        as an image (origin='lower')
+        if image data is 2D, it will be treated as array (first element = bottom)
     width : float
         width of the final logo in cm
     dx : float
@@ -868,18 +872,30 @@ def _convert_image(fname, width, dx, dy, height=None):
         voxel heigh
     height : float, optional
         height of the final log in cm, by default the aspect ratio is kept
+    threshold : float
+        values above are 0, below are 1. Default is the mean value.
 
     Returns
     -------
     array
         a mask where the logo will be applied
     """
+    if isinstance(image, np.ndarray):
+        if image.ndim == 3:
+            im = image.mean(-1).T[:, ::-1]
+        elif image.ndim == 2:
+            im = image[:, :]
+        else:
+            ValueError('image data needs to be 2D or 3D')
+    else:
+        # Read image
+        im = imageio.v3.imread(image)
+        im = np.array(im).mean(-1)  # we make it 1 value instead of 3 (RGB)
+        im = im.T[:, ::-1]   # we change the axis to have (0,0) in the first entry
 
-    # Read image
-    im = imageio.v3.imread(fname)
-    im = np.array(im).mean(-1)  # we make it 1 value instead of 3 (RGB)
-    im = im > im.mean()  # we make it binary
-    im = im.T[:, ::-1]   # we change the axis to have (0,0) in the first entry
+    # we make it binary
+    threshold = threshold or im.mean()
+    im = im < threshold
 
     # if height not given: keep aspect ratio
     height = height or width / im.shape[0] * im.shape[1]
@@ -893,7 +909,7 @@ def _convert_image(fname, width, dx, dy, height=None):
     y_stack = np.arange(0, np.ceil(height / dy) * dy, dy)
 
     # interpolate
-    f = RegularGridInterpolator((x_img, y_img), im, method='nearest', bounds_error=False, fill_value=255.0)
+    f = RegularGridInterpolator((x_img, y_img), im, method='nearest', bounds_error=False, fill_value=0)
     X, Y = np.meshgrid(x_stack, y_stack, indexing='ij', sparse=True)
     im2 = f((X, Y))
 
@@ -907,14 +923,13 @@ class IStack(object):
 
         # read image stack - the transpose makes the order x, y, z
         collection = imread_collection(str(self.directory / '*.png'))
-        self.imgs = collection.concatenate()
-        self.imgs = self.imgs.transpose(2, 1, 0, 3)
+        self._imgs = collection.concatenate()
+        self.imgs = self._imgs.transpose(2, 1, 0, 3)[:, ::-1, ...]
 
-        # get image sizes
-        self.nx, self.ny = self.imgs.shape[:2]
-        self.nz = len(self.files)
-        self._x = np.arange(self.nx)
-        self._y = np.arange(self.ny)
+        # we make it unwritable so that it can only changed via the property, or
+        # within functions, where we need to call the update() function to reset
+        # some things
+        self._imgs.flags.writeable = False
 
         # set printer properties
         self.dx = 2.54 / dpi_x
@@ -932,6 +947,31 @@ class IStack(object):
 
         # which indices are empty
         self._empty_indices = None
+
+    @property
+    def imgs(self):
+        return self._imgs
+
+    @imgs.setter
+    def imgs(self, value):
+        # set the value
+        if not isinstance(value, np.ndarray) or value.ndim != 4:
+            raise ValueError('you need to give a 4D numpy.ndarray')
+        self._imgs = value
+        self.reset()
+
+    def reset(self):
+        """resets simple thing in case the data changed"""
+        self.nx, self.ny, self.nz = self._imgs.shape[:3]
+        self._x = np.arange(self.nx)
+        self._y = np.arange(self.ny)
+        self._z = np.arange(self.nz)
+
+        # reset dependent properties that need longer to calculate
+        self._colors = None
+        self._ncol = None
+        self._counts = None
+        self._get_view.cache_clear()
 
     @property
     def empty_indices(self):
@@ -1026,8 +1066,13 @@ class IStack(object):
         """Replaces the color of index `i_col` with the new color `new_col`."""
         new_col = np.array(new_col, dtype=self.imgs.dtype)
         mask = (self.imgs == self.colors[i_col][None, None, None, :]).all(-1)
+
+        # make it writable briefly
+        # but here we update the colors manually to save time
+        self._imgs.flags.writeable = True
         self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
         self.colors[i_col, :] = new_col
+        self._imgs.flags.writeable = False
 
     def replace_color_mix(self, i_col, repl_colors, f=[1]):
         """Replaces the color at index `i_col` with a *mix* of new colors.
@@ -1047,13 +1092,18 @@ class IStack(object):
         """
         if len(f) != len(repl_colors):
             raise ValueError('Each new color needs a relative abundance given in `f`.')
+
         for iz in range(self.nz):
+            self._imgs.flags.writeable = True
             self.imgs[:, :, iz, :] = color_replace(
                 self.imgs[:, :, iz, :],
                 self.colors[i_col],
                 repl_colors,
                 f=f,
                 inplace=True)
+            self._imgs.flags.writeable = False
+        # reset as colors might have changed
+        self.reset()
 
     def show_histogram(self, empty_indices=None):
         """Shows a histogram of all non-transparent materials.
@@ -1122,11 +1172,19 @@ class IStack(object):
             cmap = LinearSegmentedColormap.from_list('my', [bg, col])
 
             # plotting
-            cc = ax[1, i_column].imshow(self.counts[:, :, ic], vmin=0, vmax=vmax, origin='lower', cmap=cmap)
-            ax[1, i_column].set_aspect(self.dpi_y / self.dpi_x)
+            cc = ax[1, i_column].imshow(self.counts[:, :, ic].T, vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            ax[1, i_column].set_aspect(self.dpi_x / self.dpi_y)
             f.colorbar(cc, cax=ax[0, i_column], orientation='horizontal')
 
+            ax[1, i_column].set_xlabel('x [voxel]')
+            ax[1, i_column].set_ylabel('y [voxel]')
+
         return f, ax
+
+    @property
+    def dimension(self):
+        "[x, y, z] size in cm"
+        return [self.nx * self.dx, self.ny * self.dy, self.nz * self.dz]
 
     def show_info(self, empty_indices=None):
         "prints some infos about the image stack (size, filling factor, ...)"
@@ -1138,8 +1196,10 @@ class IStack(object):
         for i, row in enumerate(self.colors):
             print(f'- {list(row)}' + (i in empty_indices) * ' (transp.)')
 
+        dim = self.dimension
+
         print(f'{self.nz} files')
-        print(f'dimension = {self.nx * self.dx:.2f} x {self.ny * self.dy:.2f} x {self.nz * self.dz:.2f} cm')
+        print(f'dimension = {dim[0]:.2f} x {dim[1]:.2f} x {dim[2]:.2f} cm')
         print(f'filling fraction: {1 - self.counts[:, :, empty_indices].sum() / (self.nx * self.ny * self.nz):.2%}')
 
         print(f'nr of fully transparent columns: {(self.counts[:, :, rest].sum(-1) == 0).sum() / (self.nx * self.ny * self.nz):.2%}')
@@ -1155,7 +1215,7 @@ class IStack(object):
 
         f, axs = plt.subplots(1, 3, figsize=(11, 3), dpi=100, tight_layout=True)
 
-        opts = dict(cmap='gray', origin='upper')
+        opts = dict(cmap='gray', origin='lower')
         summed_image = self.counts[:, :, rest].sum(-1)
 
         ax = axs[0]
@@ -1175,34 +1235,38 @@ class IStack(object):
         ax.set_xlabel('count')
         return f, ax
 
-    def get_top_view(self, empty_indices=None, n_tauone=7, bg=[255, 255, 255], view='xy', backward=False):
-        """computes an approximate render view from top, assuming the optical depth is around `n_tauone` pixels.
+    @lru_cache(maxsize=12)
+    def _get_view(self, n_tauone=7, bg=(255, 255, 255), view='xy', backward=False):
+        """computes an approximate render view from bottom, assuming the optical depth is around `n_tauone` pixels.
 
         Parameters
         ----------
-        empty_indices : array, optional
-            indices of the colors in self.colors that should be treated as transparent,
-            by default it uses the class property
-
         n_tauone : int, optional
             after how many pixels the print becomes optically thick, by default 7
 
         bg : array, optional
-            background image color, default black, i.e. [0, 0, 0]
+            background image color, default white, i.e. [255, 255, 255]
 
         view : str
             viewing direction: 'xy' (default), 'xz', 'yz'
 
         backward : bool
-            view from opposite direction, default: False
+            view from opposite direction, default: looking in ascending direction
 
         Returns
         -------
-        array
+        image : array
             rendered image
+        extent: list
+            extent of the image
+        aspect: float
+            aspect ratio for plotting image real-world aspect
         """
 
         bg = (np.ones(3) * bg).astype(int)
+
+        if view not in ['xy', 'xz', 'yz']:
+            raise ValueError('invalid view')
 
         if view == 'xy':
             data = self.imgs
@@ -1210,66 +1274,136 @@ class IStack(object):
             data = self.imgs.transpose(0, 2, 1, 3)
         elif view == 'yz':
             data = self.imgs.transpose(1, 2, 0, 3)
-        else:
-            raise ValueError('invalid view')
 
+        x = [0, data.shape[0]]
+        y = [0, data.shape[1]]
+
+        aspect = getattr(self, f'dpi_{view[0]}') / getattr(self, f'dpi_{view[1]}')
+
+        # note, the forward integration is the ray to observer
+        # so in xy, backward=False is the view from top.
+        # further more, we pass the indices to fortran, so we
+        # need to use fortran indexing (1, n)
         if backward:
-            i0 = data.shape[2]
-            i1 = 1  # fortran index!
-            step = -1
-        else:
-            i0 = 1  # fortran index!
+            i0 = 1
             i1 = data.shape[2]
             step = 1
+        else:
+            i0 = data.shape[2]
+            i1 = 1
+            step = -1
 
-            # which colors in stack.colors are to be treated as transparent
-        empty_indices = empty_indices or self.empty_indices
+        image = fmodule.compute_view(data, i0, i1, step, n_tauone, self.colors[self.empty_indices], bg=bg)
 
-        image = fmodule.top_view(data, i0, i1, step, n_tauone, self.colors[empty_indices], bg=bg)
+        if view == 'xy':
+            if not backward:
+                y = y[::-1]
+                image = image[:, ::-1]
+        elif view == 'xz':
+            if backward:
+                x = x[::-1]
+                image = image[::-1, :]
+        elif view == 'yz':
+            if not backward:
+                x = x[::-1]
+                image = image[::-1, :]
 
-        return image
+        extent = [*x, *y]
 
-    def show_top_view(self, ax=None, **kwargs):
-        "plots the top view generated with `get_top_view` (to which kwargs are passed)"
-        image = self.get_top_view(**kwargs)
+        return image, extent, aspect
 
-        view = kwargs.get('view', 'xy')
-        ratio = getattr(self, f'dpi_{view[1]}') / getattr(self, f'dpi_{view[0]}')
+    def show_view(self, view, bg=(255, 255, 255), n_tauone=7, backward=False, ax=None, **kwargs):
+        """plots an approximate render view from bottom, assuming the optical depth is around `n_tauone` pixels.
+
+        Parameters
+        ----------
+
+        view : str
+            viewing direction: 'xy' (default), 'xz', 'yz'
+
+        n_tauone : int, optional
+            after how many pixels the print becomes optically thick, by default 7, for colors 10 or so is better
+
+        bg : array, optional
+            background image color, default white, i.e. [255, 255, 255]
+
+        backward : bool
+            view from opposite direction, default: looking in ascending direction
+
+        ax : matplotlib axes
+            into which axes to plot, will create new figure/axes if None
+
+        Returns
+        -------
+        figure, axes of the rendered view
+        """
+
+        bg = kwargs.get('bg', [255] * 3)
+        bg = tuple((np.ones(3) * bg).astype(int))
+
+        image, extent, aspect = self._get_view(n_tauone=n_tauone, bg=bg, view=view, backward=backward)
 
         if ax is None:
             f, ax = plt.subplots()
         else:
             f = ax.figure
 
-        if view == 'xz':
-            image = image.transpose(1, 0, 2)
-            ratio = 1.0 / ratio
+        ax.imshow(image.transpose(1, 0, 2).astype(int), extent=extent, origin='lower')
+        ax.set_aspect(aspect)
+        ax.set_xlabel(view[0] + '-axis')
+        ax.set_ylabel(view[1] + '-axis')
 
-        ax.imshow(image / 255)
-        ax.set_aspect(ratio)
+        return f, ax
 
+    def show_all_sides(self):
+        "Make a plot of all 6 sides (takes some time!)"
+        f, ax = plt.subplots(3, 2, figsize=(8, 10))
+
+        for ix, backward in enumerate([True, False]):
+            for iy, view in enumerate(['xy', 'xz', 'yz']):
+                image, extent, aspect = self._get_view(view=view, backward=backward)
+                ax[iy, ix].imshow(image.transpose(1, 0, 2).astype(int), extent=extent, origin='lower')
+                ax[iy, ix].set_aspect(aspect)
+                ax[iy, ix].set_title(f'backward = {backward}')
+                ax[iy, 0].set_xlabel(view[0])
+                ax[iy, 0].set_ylabel(view[1])
         return f, ax
 
     def three_views(self, bg=[255] * 3):
-        f, ax = plt.subplots(2, 2, gridspec_kw={
-            'width_ratios': [1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[1] / self.dpi_y)],
-            'height_ratios': [1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[0] / self.dpi_x)],
-        })
-        ax[1, 1].set_visible(False)
 
-        self.show_top_view(bg=bg, view='xy', ax=ax[0, 0])
-        self.show_top_view(bg=bg, view='xz', ax=ax[1, 0])
-        self.show_top_view(bg=bg, view='yz', ax=ax[0, 1])
+        # convert to tuple
+        bg = tuple((np.ones(3) * bg).astype(int))
 
-        for _ax in ax.ravel():
-            _ax.set_xticks([])
-            _ax.set_yticks([])
-            _ax.axes.get_xaxis().set_visible(False)
-            _ax.axes.get_yaxis().set_visible(False)
+        f = plt.figure(figsize=(6, 6))
+        gs = gridspec.GridSpec(
+            2, 2,
+            width_ratios=[1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[1] / self.dpi_y)],
+            height_ratios=[1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[0] / self.dpi_x)])
+        gs.update(wspace=0.0, hspace=0.0)
 
-        f.subplots_adjust(hspace=0, wspace=0)
+        ax1 = plt.subplot(gs[0, 0])
+        self.show_view(bg=bg, view='xy', ax=ax1, backward=True)
+        ax1.set_xticks([])
+        ax1.text(0.02, 0.99, 'top', color='red', ha='left', va='top', transform=ax1.transAxes)
 
-        return f, ax
+        ax3 = plt.subplot(gs[1, 0])
+        self.show_view(bg=bg, view='xz', ax=ax3)
+        ax3.text(0.02, 0.99, 'front', color='red', ha='left', va='top', transform=ax3.transAxes)
+
+        # special treatment to rotate right figure
+        ax2 = plt.subplot(gs[0, 1])
+        image, extent, aspect = self._get_view(bg=bg, view='yz', backward=True)
+        ax2.imshow(image.astype(int), extent=np.array(extent)[[2, 3, 0, 1]], origin='lower')
+        ax2.set_aspect(1 / aspect)
+        ax2.set_xlabel('z-axis')
+        ax2.set_ylabel('y-axis')
+        ax2.xaxis.set_label_position('top')
+        ax2.xaxis.tick_top()
+        ax2.yaxis.set_label_position('right')
+        ax2.yaxis.tick_right()
+        ax2.text(0.02, 0.99, 'right', color='red', ha='left', va='top', transform=ax2.transAxes)
+
+        return f, [ax1, ax2, ax3]
 
     def add_shell(self, thickness, level=200,
                   bottom=True,
@@ -1305,7 +1439,7 @@ class IStack(object):
 
         self._counts = None
 
-    def add_logo_xz(self, fname, pos, width, depth, height=None, col=[0, 0, 0]):
+    def add_logo_xz(self, fname, pos, width, depth, height=None, col=[0, 0, 0], flip_x=False, flip_y=False):
         """adds a logo based on an image file to the image stack
 
         Parameters
@@ -1322,13 +1456,21 @@ class IStack(object):
             height of logo, by default None
         col : list, optional
             color to be assigned at dark parts of logo, by default [0, 0, 0]
+
+        flip_x, flip_y : bool
+            if the logo should be flipped in x or y direction
+
         """
 
         # convert image
         im2 = _convert_image(fname, width, self.dx, self.dz, height=height)
 
-        # we need to flip it to apply it properly
-        im2 = im2[:, ::-1]
+        if flip_x:
+            im2 = im2[::-1, :]
+        if flip_y:
+            im2 = im2[:, ::-1]
+
+        im2 = ~im2.astype(bool)
 
         # how many x-cells should be filled?
         ny = round(depth / self.dy)
@@ -1337,6 +1479,7 @@ class IStack(object):
         p0 = (pos / np.array([self.dx, self.dy, self.dz])).astype(int)
 
         # define a matching-size view into the stack
+        self._imgs.flags.writeable = True
         slice = self.imgs[p0[0]:p0[0] + im2.shape[0], p0[1]:p0[1] + ny, p0[2]:p0[2] + im2.shape[1]]
 
         # where the image is dark: we set to the color
@@ -1344,6 +1487,8 @@ class IStack(object):
 
         # assign this array to the original image stack
         slice[...] = res
+        self._imgs.flags.writeable = False
+        self.reset()
 
     def save(self, i, path='.'):
         """write image layer i to `path`

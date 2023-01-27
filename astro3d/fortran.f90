@@ -402,7 +402,7 @@ end do
 
 end subroutine mark_streamline
 
-subroutine top_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, nx, ny, nz, nempty)
+subroutine compute_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, nx, ny, nz, nempty)
     implicit none
     integer, intent(in) :: i0, i1, step, nx, ny, nz, n_tauone, nempty
     integer, intent(in) :: data(nx, ny, nz, 3)
@@ -439,7 +439,7 @@ subroutine top_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, nx, n
         !$OMP END DO
         !$OMP END PARALLEL
     enddo
-end subroutine top_view
+end subroutine compute_view
 
 
 ! this routines takes a 3D image stack (nx, ny, nz, nc). Here, nc is the number
