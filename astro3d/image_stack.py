@@ -137,7 +137,8 @@ def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None
         array of `N_colors` floats that describe the density width
 
     clip : array
-        after how many sigmas to clip the color density
+        if sigmas is used: after how many sigmas to clip the color density
+        if not and clip is of length 2: use those entries as lower, upper clip value
 
     Returns:
 
@@ -162,6 +163,10 @@ def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None
     # normalize data
     layer_norm = np.array(norm(new_layer))
     layer_norm[np.isnan(layer_norm)] = 0.0
+
+    # clip if wanted
+    if sigmas is None and len(np.array(clip)) == 2:
+        layer_norm.clip(min=clip[0], max=clip[1], out=layer_norm)
 
     if levels is not None:
         # compute the different density contours (but exclude 0.0 which should never be colored)
@@ -452,7 +457,7 @@ def makeslice_from_colordensity(path, color_density, iz, fill=1.0, colors=None, 
 
 
 def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices',
-            norm=None, pool=None, vmin=None, vmax=None, iz=None):
+            norm=None, pool=None, vmin=None, vmax=None, iz=None, x=None, y=None, z=None):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -467,6 +472,8 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
         y resolution of the printer, by default 600
     dpi_z : int, optional
         z resolution of the printer, by default 1200
+    x, y, z : array
+        input grids of the data-cube
     output_dir : str, optional
         path of output directory, by default 'slices'
     norm : norm or None or str, optional
@@ -504,16 +511,24 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
         else:
             raise ValueError('norm is not a valid input argument for normalization')
 
-        vmax = vmax or 10**np.ceil(np.log10(data.max()))
-        vmin = vmin or 1e-2 * vmax
-        print('from {vmin:.2g} to {vmax:.2g}')
+        vmax = vmax or norm.vmax or 10**np.ceil(np.log10(data.max()))
+        vmin = vmin or norm.vmin or 1e-2 * vmax
         norm = Norm(vmin=vmin, vmax=vmax, clip=True)
+    else:
+        vmax = vmax or norm.vmax or 10**np.ceil(np.log10(data.max()))
+        vmin = vmin or norm.vmin or 1e-2 * vmax
+
+    print(f'{type(norm).__name__} from {vmin:.2g} to {vmax:.2g}')
 
     # create original grid and interpolation function
 
-    x = np.arange(data.shape[0])
-    y = np.arange(data.shape[1])
-    z = np.arange(data.shape[2])
+    x = x or np.arange(data.shape[0])
+    y = y or np.arange(data.shape[1])
+    z = z or np.arange(data.shape[2])
+
+    lx = x[-1] - x[0]
+    ly = y[-1] - y[0]
+    lz = z[-1] - z[0]
 
     def f_interp(coords):
         return fmodule.interpolate(x, y, z, data, coords)
@@ -521,8 +536,8 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
     # calculate new grids
 
     n_z = int(dpi_z * height / 2.54)
-    n_x = int(n_z * len(x) / len(z) / dpi_z * dpi_x)
-    n_y = int(n_z * len(y) / len(z) / dpi_z * dpi_y)
+    n_x = int(n_z * lx / lz / dpi_z * dpi_x)
+    n_y = int(n_z * ly / lz / dpi_z * dpi_y)
 
     n_x += n_x % 2  # add 1 to make it even if it isn't
     n_y += n_y % 2  # add 1 to make it even if it isn't
@@ -897,8 +912,14 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None):
     threshold = threshold or im.mean()
     im = im < threshold
 
+    if width is None and height is None:
+        raise ValueError('either width or height need to be set')
+
     # if height not given: keep aspect ratio
-    height = height or width / im.shape[0] * im.shape[1]
+    if height is None:
+        height = width / im.shape[0] * im.shape[1]
+    if width is None:
+        width = height * im.shape[0] / im.shape[1]
 
     # original image coordinates in cm from lower left
     x_img = np.linspace(0, width, im.shape[0])
@@ -1439,7 +1460,7 @@ class IStack(object):
 
         self._counts = None
 
-    def add_logo_xz(self, fname, pos, width, depth, height=None, col=[0, 0, 0], flip_x=False, flip_y=False):
+    def add_logo(self, fname, pos, width, depth, plane='xz', height=None, col=[0, 0, 0], flip_x=False, flip_y=False):
         """adds a logo based on an image file to the image stack
 
         Parameters
@@ -1452,18 +1473,25 @@ class IStack(object):
             logo width in cm
         depth : float
             depth of the image in cm
+        plane : str
+            in which plane the image should be printed: 'xy', 'yz', or 'xz' (default)
         height : float, optional
             height of logo, by default None
         col : list, optional
             color to be assigned at dark parts of logo, by default [0, 0, 0]
 
         flip_x, flip_y : bool
-            if the logo should be flipped in x or y direction
+            if the logo should be flipped in (its) x or y direction
 
         """
+        if plane not in ['xy', 'yz', 'xz']:
+            raise ValueError('plane does not exist')
 
         # convert image
-        im2 = _convert_image(fname, width, self.dx, self.dz, height=height)
+        im2 = _convert_image(fname, width,
+                             getattr(self, 'd' + plane[0]),  # e.g. self.dx
+                             getattr(self, 'd' + plane[1]),  # e.g. self.dy
+                             height=height)
 
         if flip_x:
             im2 = im2[::-1, :]
@@ -1472,18 +1500,32 @@ class IStack(object):
 
         im2 = ~im2.astype(bool)
 
-        # how many x-cells should be filled?
-        ny = round(depth / self.dy)
-
         # convert position from cm to index
         p0 = (pos / np.array([self.dx, self.dy, self.dz])).astype(int)
 
-        # define a matching-size view into the stack
+        if plane == 'xy':
+            ndepth = round(depth / self.dz)
+            im_size = [im2.shape[0], im2.shape[1], ndepth]
+            im2 = im2[:, :, None, None]
+        elif plane == 'yz':
+            ndepth = round(depth / self.dx)
+            im_size = [ndepth, im2.shape[0], im2.shape[1]]
+            im2 = im2[None, :, :, None]
+        elif plane == 'xz':
+            ndepth = round(depth / self.dy)
+            im_size = [im2.shape[0], ndepth, im2.shape[1]]
+            im2 = im2[:, None, :, None]
+
+        if any(p0 + im_size > self.imgs.shape[:-1]):
+            raise ValueError(f'image block of size {im_size} put at {p0} exceeds stack size {self.imgs.shape[:-1]}')
+
         self._imgs.flags.writeable = True
-        slice = self.imgs[p0[0]:p0[0] + im2.shape[0], p0[1]:p0[1] + ny, p0[2]:p0[2] + im2.shape[1]]
+
+        # define a matching-size view into the stack
+        slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]:p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
 
         # where the image is dark: we set to the color
-        res = np.where(im2[:, None, :, None], slice, np.array(col)[None, None, None, :])
+        res = np.where(im2, slice, np.array(col)[None, None, None, :])
 
         # assign this array to the original image stack
         slice[...] = res
