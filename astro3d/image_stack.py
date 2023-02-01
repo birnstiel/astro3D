@@ -638,8 +638,8 @@ def check_colors(imgs, stride=5, nmax=8):
     # so we need to pick
     colors = colors[:ncol, :]
 
-    # we sort them "alphabetically", so white should be on the bottom
-    colors = colors[np.lexsort(np.fliplr(colors).T)]
+    # we sort them "alphabetically", so white should be on the top
+    colors = colors[np.lexsort(np.fliplr(colors).T)][::-1, :]
 
     return colors
 
