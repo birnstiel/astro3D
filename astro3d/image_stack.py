@@ -938,19 +938,28 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None):
 
 
 class IStack(object):
-    def __init__(self, directory, dpi_x, dpi_y, dz):
-        self.directory = Path(directory)
-        self.files = sorted(list(self.directory.glob('*.png')))
+    def __init__(self, input, dpi_x=600, dpi_y=300, dz=27e-4):
+        """Image stack for 3D printing.
 
-        # read image stack - the transpose makes the order x, y, z
-        collection = imread_collection(str(self.directory / '*.png'))
-        self._imgs = collection.concatenate()
-        self.imgs = self._imgs.transpose(2, 1, 0, 3)[:, ::-1, ...]
+        Parameters
+        ----------
+        input : str | Path | numpy.ndarray
+            input can be a directory with image files or a 3D numpy array
+        dpi_x : float
+            x-resolution in DPI
+        dpi_y : float
+            y-resolution in DPI
+        dz : float
+            z-layer width in cm
 
-        # we make it unwritable so that it can only changed via the property, or
-        # within functions, where we need to call the update() function to reset
-        # some things
-        self._imgs.flags.writeable = False
+        Raises
+        ------
+        ValueError
+            if input is not a string, a directory path, or a numpy ndarray
+        """
+
+        self.directory = None
+        self.files = None
 
         # set printer properties
         self.dx = 2.54 / dpi_x
@@ -960,6 +969,28 @@ class IStack(object):
         self.dpi_x = dpi_x
         self.dpi_y = dpi_y
         self.dpi_z = 2.54 / dz
+
+        if isinstance(input, np.ndarray):
+            self.imgs = input
+        #  input can be directory
+        elif isinstance(input, (Path, str)):
+            self.directory = Path(input)
+            if not self.directory.is_dir():
+                raise ValueError('intput has to be a directory or numpy array')
+
+            self.files = sorted(list(self.directory.glob('*.png')))
+
+            # read image stack - the transpose makes the order x, y, z
+            collection = imread_collection(str(self.directory / '*.png'))
+            self._imgs = collection.concatenate()
+            self.imgs = self._imgs.transpose(2, 1, 0, 3)[:, ::-1, ...]
+        else:
+            raise ValueError('input has to be directory or numpy ndarray')
+
+        # we make it unwritable so that it can only changed via the property, or
+        # within functions, where we need to call the update() function to reset
+        # some things
+        self._imgs.flags.writeable = False
 
         # determine the palette
         self._colors = None
@@ -984,9 +1015,9 @@ class IStack(object):
     def reset(self):
         """resets simple thing in case the data changed"""
         self.nx, self.ny, self.nz = self._imgs.shape[:3]
-        self._x = np.arange(self.nx)
-        self._y = np.arange(self.ny)
-        self._z = np.arange(self.nz)
+        self._x = np.arange(self.nx) * self.dx
+        self._y = np.arange(self.ny) * self.dy
+        self._z = np.arange(self.nz) * self.dz
 
         # reset dependent properties that need longer to calculate
         self._colors = None
@@ -1530,6 +1561,117 @@ class IStack(object):
         # assign this array to the original image stack
         slice[...] = res
         self._imgs.flags.writeable = False
+        self.reset()
+
+    def add_streamlines(self, streamlines, radius=None, x=None, y=None, z=None, color=[0, 0, 0]):
+        """adds streamlines to the image stack.
+
+        Parameters
+        ----------
+        x, y, z : array
+            the coordinates (x, y, z) of the slice, defaults to positoin within the image stack (in cm)
+        streamlines : list of arrays
+            each element in the list is a `(n,3)` sized array with the 3D positions of `n` points of a streamline.
+        radius : float, optional
+            with of the streamline, by default 2.5 cells in x-direction
+        color : 3-element array
+            color that will used for the streamline
+
+        """
+
+        if x is None:
+            x = np.arange(self.imgs.shape[0]) * self.dx
+        if y is None:
+            y = np.arange(self.imgs.shape[1]) * self.dy
+        if z is None:
+            z = np.arange(self.imgs.shape[2]) * self.dz
+
+        radius = radius or 2.5 * self.dx
+
+        color = np.array(color, ndmin=1)
+        if color.ndim != 1 and len(color) != 3:
+            raise ValueError('color needs to have 3 entries.')
+
+        # make image stack writeable
+        self._imgs.flags.writeable = True
+        try:
+            for iz in tqdm(range(self.imgs.shape[2])):
+                mask = np.zeros([len(x), len(y)], dtype=bool)
+                for line in streamlines:
+                    mask = mask | fmodule.mark_streamline(x, y, z[iz], radius, line)
+
+                self.imgs[:, :, iz, :] = np.where(mask[:, :, None], color[None, None, :], self.imgs[:, :, iz, :])
+        finally:
+            self._imgs.flags.writeable = False
+
+        self.reset()
+
+    def add_box(self, pos, length=1.0, color=[255, 0, 0]):
+        """draw the sides of a cube: two squares, and 4 lines connecting them
+
+        Parameters
+        ----------
+        pos : 3-element array
+            (x, y, z) position of the box
+        length : float, optional
+            side-length of the cube, by default 1.0
+        color : list, optional
+            color of the box, by default [255, 0, 0]
+        """
+        path = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]])
+        vert = np.array([[0, 0, 0], [0, 0, 0.5], [0, 0, 1]])
+        box = [
+            path,
+            path + [0, 0, 1],
+            vert,
+            vert + [0, 1, 0],
+            vert + [1, 0, 0],
+            vert + [1, 1, 0]]
+
+        box = [length * b + pos for b in box]
+
+        # add box
+        self.add_streamlines(box, color=color)
+
+    def add_sphere(self, pos, radius=0.1, color=[255, 0, 0]):
+        """draw a filled sphere of given radius centered around `pos`
+
+        Parameters
+        ----------
+        pos : array | list
+            (x, y, z) position of the center
+        radius : float, optional
+            radius in cm, by default 0.1
+        color : list, optional
+            color of the sphere, by default [255, 0, 0]
+        """
+        ix = self._x.searchsorted(pos[0])
+        iy = self._y.searchsorted(pos[1])
+        iz = self._z.searchsorted(pos[2])
+
+        nx = int(np.ceil(radius / self.dx))
+        ny = int(np.ceil(radius / self.dy))
+        nz = int(np.ceil(radius / self.dz))
+
+        x, y, z = np.meshgrid(
+            self._x[ix - nx:ix + nx + 1],
+            self._y[iy - ny:iy + ny + 1],
+            self._z[iz - nz:iz + nz + 1], indexing='ij')
+        mask = ((x - pos[0])**2 + (y - pos[1])**2 + (z - pos[2])**2) < radius**2
+
+        color = np.array(color, ndmin=1)
+
+        try:
+            self._imgs.flags.writeable = True
+            slice = self._imgs[
+                ix - nx:ix + nx + 1,
+                iy - ny:iy + ny + 1,
+                iz - nz:iz + nz + 1, :]
+            res = np.where(mask[:, :, :, None], color[None, None, None, :], slice)
+            slice[...] = res
+        finally:
+            self._imgs.flags.writeable = False
+
         self.reset()
 
     def save(self, i, path='.'):

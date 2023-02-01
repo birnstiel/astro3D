@@ -341,23 +341,20 @@ double precision, intent(in) :: x(nx), y(ny), z, r, line(np, 3)
 logical, intent(out) :: mask(nx, ny)
 
 double precision :: d1_sq, d2(3), el(3), d, length
+double precision :: xmin, xmax, ymin, ymax, xx, yy
 logical :: point_mask(np)
-integer :: ix, iy, ip
+integer :: ix, iy, ip, i_next
 
-! first we check which parts of the streamline are within reach
-! of our z-layer
-! then we add also the neighboring points of the points within reach
-WHERE (ABS(line(:, 3) - z) .le. r)
-    point_mask = .true.
-ELSEWHERE
-    point_mask = .false.
-ENDWHERE
-
-! now make all neighbors true as well
-point_mask(1) = point_mask(1) .or. point_mask(2)
-point_mask(2:np-1) = point_mask(2:np-1) .or. point_mask(1:np-2) .or. point_mask(3:np)
-point_mask(np) = point_mask(np) .or. point_mask(np-1)
-
+! first we check which parts of the streamline are within one `r`
+! of our z-layer, or whether the line is crossing the layer within the next step
+point_mask = .false.
+do ip = 1, np
+    i_next = min(ip + 1, np)
+    if ((sign(1d0, line(ip, 3) - z) .ne. sign(1d0, line(i_next, 3) - z)) .or. (ABS(line(ip, 3) - z) .le. r)) then
+        point_mask(ip) = .true.
+        point_mask(i_next) = .true.
+    endif
+enddo
 
 ! now for each pixel, we need to compute all distances to the lines and to the points
 mask = .false.
@@ -366,14 +363,26 @@ do ip = 1, np
     ! if the point mask of this point is not set, we ignore it
     if (.not.(point_mask(ip))) cycle
 
-    do ix = 1, nx
-        do iy = 1, ny
+    xmin = min(line(ip,1), line(min(ip+1, np),1))
+    xmax = max(line(ip,1), line(min(ip+1, np),1))
+    ymin = min(line(ip,2), line(min(ip+1, np),2))
+    ymax = max(line(ip,2), line(min(ip+1, np),2))
 
+    do ix = 1, nx
+        xx = x(ix)
+        ! if we are too far away, skip
+        if ((xx < xmin - r) .or. (xx > xmax + r)) cycle
+        
+        do iy = 1, ny
+            yy = y(iy)
             !if point is already colored: we can skip it
             if (mask(ix, iy)) cycle
 
+            ! if we are too far away, skip
+            if ((yy < ymin - r) .or. (yy> ymax + r)) cycle
+
             ! compute distance to point
-            d2 = (/x(ix), y(iy), z/) - line(ip, :)
+            d2 = (/xx, yy, z/) - line(ip, :)
             if (NORM2(d2) .le. r) then
                 mask(ix, iy) = .true.
                 cycle
