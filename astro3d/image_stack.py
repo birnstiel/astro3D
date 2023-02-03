@@ -6,11 +6,12 @@ from functools import lru_cache
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import ticker, gridspec
+from matplotlib import ticker, gridspec, font_manager
 from matplotlib.colors import LogNorm, Normalize, to_rgb, LinearSegmentedColormap
 from scipy.interpolate import interpn
 from scipy.interpolate import RegularGridInterpolator
 from tqdm.auto import tqdm
+from PIL import Image, ImageFont, ImageDraw
 
 from skimage.io import imread_collection
 
@@ -284,7 +285,7 @@ def layers2image(layer_dithered, path, iz, colors=None, f=None, bg=255):
 
     # save as png
     if path is not None:
-        imageio.imwrite(path / f'slice_{iz:04d}.png', im)
+        imageio.imwrite(path / f'slice_{iz:04d}.png', im[::-1, :, :])
 
     return im
 
@@ -869,6 +870,53 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
+def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=255):
+    """Creates a black/white image of the given text.
+
+    Parameters
+    ----------
+    text : str
+        string to be printed in the image
+    size : int, optional
+        font size, by default 100
+    family : str, optional
+        font family, by default 'sans-serif'
+    weight : str, optional
+        font weight, by default 'regular'
+    bg : int
+        background brightness, white by default 255
+
+    Returns
+    -------
+    numpy.ndarray
+        2D array data where the font will have 0, the background have 255 by default
+    """
+    color = (0, 0, 0)
+    font = font_manager.FontProperties(family=family, weight=weight)
+    file = font_manager.findfont(font)
+    font = ImageFont.truetype(file, size=size)
+
+    bbox = font.getbbox(text)
+
+    # create empty image
+    img = 255 * np.ones([bbox[3], bbox[2], 3], dtype=np.uint8)
+    img = Image.fromarray(img)
+
+    # write text into it
+    img_edit = ImageDraw.Draw(img)
+    img_edit.text((0, 0), text, color, font=font)
+
+    # convert back to numpy
+    im_out = np.asarray(img)
+
+    # make it "binary"
+    im_out = (im_out.mean(-1) > 128) * bg
+
+    im_out = im_out.T[:, ::-1]
+
+    return im_out
+
+
 def _convert_image(image, width, dx, dy, height=None, threshold=None):
     """converts an image file to a grid that matches an image stack
 
@@ -1445,7 +1493,7 @@ class IStack(object):
         # special treatment to rotate right figure
         ax2 = plt.subplot(gs[0, 1])
         image, extent, aspect = self._get_view(bg=bg, view='yz', backward=True)
-        ax2.imshow(image.astype(int), extent=np.array(extent)[[2, 3, 0, 1]], origin='lower')
+        ax2.imshow(image[:, ::-1].astype(int), extent=np.array(extent)[[3, 2, 0, 1]], origin='lower')
         ax2.set_aspect(1 / aspect)
         ax2.set_xlabel('z-axis')
         ax2.set_ylabel('y-axis')
@@ -1592,10 +1640,16 @@ class IStack(object):
         if color.ndim != 1 and len(color) != 3:
             raise ValueError('color needs to have 3 entries.')
 
+        zmin = min([np.array(streamline[:, 2]).min() for streamline in streamlines]) - radius
+        zmax = max([np.array(streamline[:, 2]).max() for streamline in streamlines]) + radius
+
         # make image stack writeable
         self._imgs.flags.writeable = True
         try:
             for iz in tqdm(range(self.imgs.shape[2])):
+                if (z[iz] < zmin) or (z[iz] > zmax):
+                    continue
+
                 mask = np.zeros([len(x), len(y)], dtype=bool)
                 for line in streamlines:
                     mask = mask | fmodule.mark_streamline(x, y, z[iz], radius, line)
@@ -1605,6 +1659,50 @@ class IStack(object):
             self._imgs.flags.writeable = False
 
         self.reset()
+
+    def add_scale(self, L, p0, plane='xz', bar_ratio=0.2, color=[255, 0, 0], radius=None):
+        """add a scale bar
+
+        Parameters
+        ----------
+        L : float
+            length of bar in cm
+        p0 : array
+            x, y, z position in cm
+        plane : str, optional
+            which plane of 'xy', 'yz', 'xz', by default 'xz'
+        bar_ratio : float, optional
+            ratio of bar height by bar length, by default 0.2
+        color : list, optional
+            color of the line, by default [255, 0, 0]
+        radius : float, optional
+            radius passed to `add_streamline`
+
+        Raises
+        ------
+        ValueError
+            if plane does not exist
+        """
+        if plane == 'xy':
+            vec_x = np.array([1, 0, 0])
+            vec_y = np.array([0, 1, 0])
+        elif plane == 'yz':
+            vec_x = np.array([0, 1, 0])
+            vec_y = np.array([0, 0, 1])
+        elif plane == 'xz':
+            vec_x = np.array([1, 0, 0])
+            vec_y = np.array([0, 0, 1])
+        else:
+            raise ValueError('plane needs to be xy, yz, xz')
+
+        p0 = np.array(p0, ndmin=1)
+
+        bar = np.array([
+            [p0, p0 + L * vec_x],
+            [p0 + bar_ratio / 2 * L * vec_y, p0 - bar_ratio / 2 * L * vec_y],
+            [p0 + L * vec_x + bar_ratio / 2 * L * vec_y, p0 + L * vec_x - bar_ratio / 2 * L * vec_y]])
+
+        self.add_streamlines(bar, color=color, radius=radius)
 
     def add_box(self, pos, length=1.0, color=[255, 0, 0]):
         """draw the sides of a cube: two squares, and 4 lines connecting them
@@ -1674,6 +1772,43 @@ class IStack(object):
 
         self.reset()
 
+    def add_text(self, text, pos, width, depth, plane='xz', height=None, col=[0, 0, 0],
+                 flip_x=False, flip_y=False, size=100, family='sans-serif', weight='regular', bg=255):
+        """Adds text to the image stack
+
+        Parameters
+        ----------
+        text : str
+            string to be printed in the image
+        pos : array
+            position of the logo in x, y, z in units of cm
+        width : float
+            logo width in cm
+        depth : float
+            depth of the image in cm
+
+        plane : str
+            in which plane the image should be printed: 'xy', 'yz', or 'xz' (default)
+        height : float, optional
+            height of logo, by default None
+        col : list, optional
+            color to be assigned at dark parts of logo, by default [0, 0, 0]
+        flip_x, flip_y : bool
+            if the logo should be flipped in (its) x or y direction
+        size : int, optional
+            font size, by default 100
+        family : str, optional
+            font family, by default 'sans-serif'
+        weight : str, optional
+            font weight, by default 'regular'
+        bg : int
+            background brightness, white by default 255
+
+        """
+        img = _get_text_image(text, size=size, family=family, weight=weight, bg=bg)
+        self.add_logo(img, pos=pos, width=width, depth=depth, plane=plane,
+                      height=height, col=col, flip_x=flip_x, flip_y=flip_y)
+
     def save(self, i, path='.'):
         """write image layer i to `path`
 
@@ -1685,7 +1820,7 @@ class IStack(object):
             path to store image. Filename will be like `slice_0001.png`, by default '.'
         """
         path = Path(path)
-        imageio.imwrite(path / f'slice_{i:04d}.png', np.uint8(self.imgs[:, :, i, :].transpose(1, 0, 2)))
+        imageio.imwrite(path / f'slice_{i:04d}.png', np.uint8(self.imgs[:, ::-1, i, :].transpose(1, 0, 2)))
 
     def save_images(self, path, i0=None, i1=None):
         """save all images between `i0` and `i1` to the directory `path`.
