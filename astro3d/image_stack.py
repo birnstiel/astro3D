@@ -1711,11 +1711,12 @@ class IStack(object):
         ----------
         pos : 3-element array
             (x, y, z) position of the box
-        length : float, optional
-            side-length of the cube, by default 1.0
+        length : float or array, optional
+            side-length of the cube, by default 1.0, can be array (lx, ly, lz)
         color : list, optional
             color of the box, by default [255, 0, 0]
         """
+        length = length * np.ones(3)
         path = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]])
         vert = np.array([[0, 0, 0], [0, 0, 0.5], [0, 0, 1]])
         box = [
