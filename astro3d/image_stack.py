@@ -651,7 +651,7 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     If a list of colors and a list of `f`s are given, then `orig_color``
     is replaced with that mix of colors.
 
-    if `inplace` is `True`, then we are replacing colors in an image (of 
+    if `inplace` is `True`, then we are replacing colors in an image (of
     shape of `(nx, ny, 3)`) and could leave the rest of the image as it is.
     This could replace a single color in the image with another color.
 
@@ -1171,7 +1171,6 @@ class IStack(object):
         # but here we update the colors manually to save time
         self._imgs.flags.writeable = True
         self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
-        self.colors[i_col, :] = new_col
         self._imgs.flags.writeable = False
 
     def replace_color_mix(self, i_col, repl_colors, f=[1]):
@@ -1438,7 +1437,6 @@ class IStack(object):
         figure, axes of the rendered view
         """
 
-        bg = kwargs.get('bg', [255] * 3)
         bg = tuple((np.ones(3) * bg).astype(int))
 
         image, extent, aspect = self._get_view(n_tauone=n_tauone, bg=bg, view=view, backward=backward)
