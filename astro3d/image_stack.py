@@ -870,6 +870,51 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
+def dither_palette(img, pal, resize=None):
+    """Dither an image to a given pallette and resizes it to the given number of pixels
+
+    Parameters
+    ----------
+    img : array
+        RGB array of size nx, ny, 3
+    pal : list | array
+        color palette, list of RGB values
+    resize : tuple, optional
+        new shape of image, 2-element tuple, by default None
+
+    Returns
+    -------
+    array
+        dithered image, same shape or truncated from RGBA to RGB
+
+    """
+    pal = np.array(pal, ndmin=2)
+    if pal.shape[-1] < 3:
+        raise ValueError('palette needs to be RGB colors')
+    else:
+        pal = pal[:, :3]
+
+    img = np.array(img, ndmin=3)
+    if img.shape[-1] < 3:
+        raise ValueError('image needs to be RGB colors')
+    else:
+        img = img[:, :, :3]
+
+    # resize
+    im1 = Image.fromarray(img).convert('RGB')
+    if resize is not None:
+        im1 = im1.resize(tuple(list(resize)[::-1]))
+
+    # quantize it
+    p_img = Image.new('P', (1, 1))
+    p_img.putpalette(list(pal.ravel()))
+    im1 = im1.quantize(method=2, palette=p_img, dither=Image.Dither.FLOYDSTEINBERG).convert('RGB')
+
+    # return as array
+
+    return np.array(im1)
+
+
 def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=255):
     """Creates a black/white image of the given text.
 
@@ -917,16 +962,15 @@ def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=25
     return im_out
 
 
-def _convert_image(image, width, dx, dy, height=None, threshold=None):
+def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     """converts an image file to a grid that matches an image stack
 
     Parameters
     ----------
-    image : str | pathlib.Path | np.ndarray
+    image : str | pathlib.Path | np.ndarray | Image
         path to the image file or array with image data
-        if image data is 3D (shape=(nx, ny, 3)), it will be converted
-        as an image (origin='lower')
-        if image data is 2D, it will be treated as array (first element = bottom)
+        if image data is 3D (shape=(nx, ny, 3)), it will be converted as an image (origin='lower')
+        if image data is 2D, it will be treated as array (first element = bottom left)
     width : float
         width of the final logo in cm
     dx : float
@@ -936,32 +980,44 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None):
     height : float, optional
         height of the final log in cm, by default the aspect ratio is kept
     threshold : float
-        values above are 0, below are 1. Default is the mean value.
+        if none, nothing happens
+        if float, the image will be converted to black/white with the given brightness threshold
+    pal : list | array, optional
+        color palette, list of RGB values, by default None
 
     Returns
     -------
     array
         a mask where the logo will be applied
     """
-    if isinstance(image, np.ndarray):
-        if image.ndim == 3:
-            im = image.mean(-1).T[:, ::-1]
-        elif image.ndim == 2:
-            im = image[:, :]
-        else:
-            ValueError('image data needs to be 2D or 3D')
-    else:
-        # Read image
-        im = imageio.v3.imread(image)
-        im = np.array(im).mean(-1)  # we make it 1 value instead of 3 (RGB)
-        im = im.T[:, ::-1]   # we change the axis to have (0,0) in the first entry
 
-    # we make it binary
-    threshold = threshold or im.mean()
-    im = im < threshold
+    # we use the the 3 colors + black and white as default
+    if pal is None:
+        pal = [BaseBlack, BaseCyan, BaseMagenta, BaseWhite, BaseYellow]
+
+    # if path given, read image
+    if isinstance(image, (str, Path)):
+        # Read image
+        image = imageio.v3.imread(image)
+
+    # if input is image-like, rotate
+    if isinstance(image, (imageio.core.Array, Image.Image)) or (isinstance(image, np.ndarray) and image.ndim == 3):
+        im = np.rot90(np.array(image), axes=(1, 0))
+    # if input is 2D array, use as is, but add 3rd dimension
+    elif isinstance(image, np.ndarray) and image.ndim == 2:
+        im = np.zeros([*image.shape, 3], dtype=np.uint8)
+        im[...] = image[:, :, None]
+    else:
+        raise ValueError('Input needs to be image path, image, or array')
+
+    # make it binary
+    if threshold is not None:
+        image = (255 * ((im.mean(-1) / 255) < threshold)).astype(int)
+        im[...] = image[..., None]
 
     if width is None and height is None:
-        raise ValueError('either width or height need to be set')
+        width = dx * im.shape[0]
+        height = dy * im.shape[1]
 
     # if height not given: keep aspect ratio
     if height is None:
@@ -969,20 +1025,14 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None):
     if width is None:
         width = height * im.shape[0] / im.shape[1]
 
-    # original image coordinates in cm from lower left
-    x_img = np.linspace(0, width, im.shape[0])
-    y_img = np.linspace(0, height, im.shape[1])
-
-    # new grid: same extent with right number of steps
-    x_stack = np.arange(0, np.ceil(width / dx) * dx, dx)
-    y_stack = np.arange(0, np.ceil(height / dy) * dy, dy)
+    # new shape: same extent with right number of steps
+    nx = int(np.ceil(width / dx))
+    ny = int(np.ceil(height / dy))
 
     # interpolate
-    f = RegularGridInterpolator((x_img, y_img), im, method='nearest', bounds_error=False, fill_value=0)
-    X, Y = np.meshgrid(x_stack, y_stack, indexing='ij', sparse=True)
-    im2 = f((X, Y))
+    im = dither_palette(im, pal, resize=(nx, ny))
 
-    return im2
+    return im
 
 
 class IStack(object):
@@ -1537,7 +1587,7 @@ class IStack(object):
 
         self._counts = None
 
-    def add_logo(self, fname, pos, width, depth, plane='xz', height=None, col=[0, 0, 0], flip_x=False, flip_y=False):
+    def add_logo(self, fname, pos, width, depth, plane='xz', height=None, flip_x=False, flip_y=False, pal=None):
         """adds a logo based on an image file to the image stack
 
         Parameters
@@ -1554,9 +1604,6 @@ class IStack(object):
             in which plane the image should be printed: 'xy', 'yz', or 'xz' (default)
         height : float, optional
             height of logo, by default None
-        col : list, optional
-            color to be assigned at dark parts of logo, by default [0, 0, 0]
-
         flip_x, flip_y : bool
             if the logo should be flipped in (its) x or y direction
 
@@ -1564,18 +1611,19 @@ class IStack(object):
         if plane not in ['xy', 'yz', 'xz']:
             raise ValueError('plane does not exist')
 
+        if pal is None:
+            pal = self.colors
+
         # convert image
         im2 = _convert_image(fname, width,
                              getattr(self, 'd' + plane[0]),  # e.g. self.dx
                              getattr(self, 'd' + plane[1]),  # e.g. self.dy
-                             height=height)
+                             height=height, pal=pal)
 
         if flip_x:
             im2 = im2[::-1, :]
         if flip_y:
             im2 = im2[:, ::-1]
-
-        im2 = ~im2.astype(bool)
 
         # convert position from cm to index
         p0 = (pos / np.array([self.dx, self.dy, self.dz])).astype(int)
@@ -1583,15 +1631,15 @@ class IStack(object):
         if plane == 'xy':
             ndepth = round(depth / self.dz)
             im_size = [im2.shape[0], im2.shape[1], ndepth]
-            im2 = im2[:, :, None, None]
+            im2 = im2[:, :, None, :]
         elif plane == 'yz':
             ndepth = round(depth / self.dx)
             im_size = [ndepth, im2.shape[0], im2.shape[1]]
-            im2 = im2[None, :, :, None]
+            im2 = im2[None, :, :, :]
         elif plane == 'xz':
             ndepth = round(depth / self.dy)
             im_size = [im2.shape[0], ndepth, im2.shape[1]]
-            im2 = im2[:, None, :, None]
+            im2 = im2[:, None, :, :]
 
         if any(p0 + im_size > self.imgs.shape[:-1]):
             raise ValueError(f'image block of size {im_size} put at {p0} exceeds stack size {self.imgs.shape[:-1]}')
@@ -1601,11 +1649,8 @@ class IStack(object):
         # define a matching-size view into the stack
         slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]:p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
 
-        # where the image is dark: we set to the color
-        res = np.where(im2, slice, np.array(col)[None, None, None, :])
-
         # assign this array to the original image stack
-        slice[...] = res
+        slice[...] = im2
         self._imgs.flags.writeable = False
         self.reset()
 

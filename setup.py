@@ -64,7 +64,7 @@ if __name__ == "__main__":
             ]},
             include_package_data=True,
             ext_modules=extensions,
-            install_requires=['matplotlib', 'numpy', 'skimage', 'PIL', 'scipy', 'tqdm'],
+            install_requires=['matplotlib', 'numpy', 'scikit-image', 'Pillow', 'scipy', 'tqdm'],
             python_requires='>=3.6',
             zip_safe=False,
             entry_points={
