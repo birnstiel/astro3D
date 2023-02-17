@@ -979,9 +979,9 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
         voxel heigh
     height : float, optional
         height of the final log in cm, by default the aspect ratio is kept
-    threshold : float
-        if none, nothing happens
-        if float, the image will be converted to black/white with the given brightness threshold
+    threshold : None | float
+        if float, the image will be converted to black/white with the given brightness threshold (0.0 ... 1.0).
+        The the low (high) value will be filled with the first (second) entry of `pal`. Default Black & White
     pal : list | array, optional
         color palette, list of RGB values, by default None
 
@@ -993,7 +993,7 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
 
     # we use the the 3 colors + black and white as default
     if pal is None:
-        pal = [BaseBlack, BaseCyan, BaseMagenta, BaseWhite, BaseYellow]
+        pal = [BaseBlack, BaseWhite, BaseCyan, BaseMagenta, BaseYellow]
 
     # if path given, read image
     if isinstance(image, (str, Path)):
@@ -1010,11 +1010,6 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     else:
         raise ValueError('Input needs to be image path, image, or array')
 
-    # make it binary
-    if threshold is not None:
-        image = (255 * ((im.mean(-1) / 255) < threshold)).astype(int)
-        im[...] = image[..., None]
-
     if width is None and height is None:
         width = dx * im.shape[0]
         height = dy * im.shape[1]
@@ -1029,8 +1024,17 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     nx = int(np.ceil(width / dx))
     ny = int(np.ceil(height / dy))
 
-    # interpolate
-    im = dither_palette(im, pal, resize=(nx, ny))
+    if threshold is None:
+        # interpolate
+        im = dither_palette(im, pal, resize=(nx, ny))
+    else:
+        # reshape without dithering
+        im = Image.fromarray(im).convert('RGB')
+        im = np.array(im.resize((ny, nx)))
+
+        # make it binary
+        mask = (im.mean(-1) / 255) < threshold
+        im[...] = np.where(mask[:, :, None], pal[0], pal[1])
 
     return im
 
@@ -1587,7 +1591,8 @@ class IStack(object):
 
         self._counts = None
 
-    def add_logo(self, fname, pos, width, depth, plane='xz', height=None, flip_x=False, flip_y=False, pal=None):
+    def add_logo(self, fname, pos, width, depth, plane='xz',
+                 height=None, flip_x=False, flip_y=False, pal=None, threshold=None):
         """adds a logo based on an image file to the image stack
 
         Parameters
@@ -1606,19 +1611,23 @@ class IStack(object):
             height of logo, by default None
         flip_x, flip_y : bool
             if the logo should be flipped in (its) x or y direction
+        pal : None | array
+            palette to use for dithering the text
+        threshold : None | float
+            if no dithering, but a brightness threshold (0.0 ... 1.0) should be used, pass this here
 
         """
         if plane not in ['xy', 'yz', 'xz']:
             raise ValueError('plane does not exist')
 
         if pal is None:
-            pal = self.colors
+            pal = [BaseBlack, BaseWhite, BaseCyan, BaseMagenta, BaseYellow]
 
         # convert image
         im2 = _convert_image(fname, width,
                              getattr(self, 'd' + plane[0]),  # e.g. self.dx
                              getattr(self, 'd' + plane[1]),  # e.g. self.dy
-                             height=height, pal=pal)
+                             height=height, pal=pal, threshold=threshold)
 
         if flip_x:
             im2 = im2[::-1, :]
@@ -1849,12 +1858,12 @@ class IStack(object):
             background brightness, white by default 255
 
         """
-        img = _get_text_image(text, size=size, family=family, weight=weight, bg=bg)
+        img = _get_text_image(text, size=size, family=family, weight=weight, bg=255)
 
-        pal = [(bg * np.ones(3)).astype(np.uint8), col]
+        pal = [col, (bg * np.ones(3)).astype(np.uint8)]
 
         self.add_logo(img, pos=pos, width=width, depth=depth, plane=plane,
-                      height=height, flip_x=flip_x, flip_y=flip_y, pal=pal)
+                      height=height, flip_x=flip_x, flip_y=flip_y, pal=pal, threshold=0.5)
 
     def save(self, i, path='.'):
         """write image layer i to `path`
