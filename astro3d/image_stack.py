@@ -1850,8 +1850,11 @@ class IStack(object):
 
         """
         img = _get_text_image(text, size=size, family=family, weight=weight, bg=bg)
+
+        pal = [(bg * np.ones(3)).astype(np.uint8), col]
+
         self.add_logo(img, pos=pos, width=width, depth=depth, plane=plane,
-                      height=height, col=col, flip_x=flip_x, flip_y=flip_y)
+                      height=height, flip_x=flip_x, flip_y=flip_y, pal=pal)
 
     def save(self, i, path='.'):
         """write image layer i to `path`
