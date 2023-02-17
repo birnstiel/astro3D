@@ -1037,6 +1037,7 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
         alpha_mask = 255 * np.ones(im.shape[:2]).astype(np.uint8)
 
     alpha_mask = np.array(Image.fromarray(alpha_mask).resize((ny, nx)))
+    alpha_mask[alpha_mask < 255] = 0.0
 
     if threshold is None:
         # interpolate
