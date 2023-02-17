@@ -908,7 +908,7 @@ def dither_palette(img, pal, resize=None):
     # quantize it
     p_img = Image.new('P', (1, 1))
     p_img.putpalette(list(pal.ravel()))
-    im1 = im1.quantize(method=2, palette=p_img, dither=Image.Dither.FLOYDSTEINBERG).convert('RGB')
+    im1 = im1.quantize(palette=p_img).convert('RGB')
 
     # return as array
 
