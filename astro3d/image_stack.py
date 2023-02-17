@@ -870,7 +870,7 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
-def dither_palette(img, pal, resize=None):
+def dither_palette(img, pal, resize=None, alpha_mask=None):
     """Dither an image to a given pallette and resizes it to the given number of pixels
 
     Parameters
@@ -881,6 +881,8 @@ def dither_palette(img, pal, resize=None):
         color palette, list of RGB values
     resize : tuple, optional
         new shape of image, 2-element tuple, by default None
+    alpha_mask : None | array
+        a mask that determines alpha in the image
 
     Returns
     -------
@@ -902,8 +904,11 @@ def dither_palette(img, pal, resize=None):
 
     # resize
     im1 = Image.fromarray(img).convert('RGB')
+    if alpha_mask is None:
+        alpha_mask = 255 * np.ones(im1.shape[:2], dtype=np.uint8)
     if resize is not None:
         im1 = im1.resize(tuple(list(resize)[::-1]))
+        alpha_mask = np.array(Image.fromarray(alpha_mask).resize(tuple(list(resize)[::-1])))
 
     # quantize it
     p_img = Image.new('P', (1, 1))
@@ -912,7 +917,7 @@ def dither_palette(img, pal, resize=None):
 
     # return as array
 
-    return np.array(im1)
+    return np.array(im1), alpha_mask
 
 
 def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=255):
@@ -969,7 +974,7 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     ----------
     image : str | pathlib.Path | np.ndarray | Image
         path to the image file or array with image data
-        if image data is 3D (shape=(nx, ny, 3)), it will be converted as an image (origin='lower')
+        if image data is 3D (shape=(nx, ny, 3 or 4)), it will be converted as an image (origin='lower')
         if image data is 2D, it will be treated as array (first element = bottom left)
     width : float
         width of the final logo in cm
@@ -1001,7 +1006,7 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
         image = imageio.v3.imread(image)
 
     # if input is image-like, rotate
-    if isinstance(image, (imageio.core.Array, Image.Image)) or (isinstance(image, np.ndarray) and image.ndim == 3):
+    if isinstance(image, (imageio.core.Array, Image.Image)) or (isinstance(image, np.ndarray) and image.ndim in [3, 4]):
         im = np.rot90(np.array(image), axes=(1, 0))
     # if input is 2D array, use as is, but add 3rd dimension
     elif isinstance(image, np.ndarray) and image.ndim == 2:
@@ -1024,9 +1029,18 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     nx = int(np.ceil(width / dx))
     ny = int(np.ceil(height / dy))
 
+    # handle alpha
+    if im.shape[-1] == 4:
+        alpha_mask = im[:, :, -1]
+        im = im[:, :, :3]
+    else:
+        alpha_mask = 255 * np.ones(im.shape[:2]).astype(np.uint8)
+
+    alpha_mask = np.array(Image.fromarray(alpha_mask).resize((ny, nx)))
+
     if threshold is None:
         # interpolate
-        im = dither_palette(im, pal, resize=(nx, ny))
+        im, alpha_mask = dither_palette(im, pal, resize=(nx, ny), alpha_mask=alpha_mask)
     else:
         # reshape without dithering
         im = Image.fromarray(im).convert('RGB')
@@ -1036,7 +1050,7 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
         mask = (im.mean(-1) / 255) < threshold
         im[...] = np.where(mask[:, :, None], pal[0], pal[1])
 
-    return im
+    return im, alpha_mask
 
 
 class IStack(object):
@@ -1624,10 +1638,10 @@ class IStack(object):
             pal = [BaseBlack, BaseWhite, BaseCyan, BaseMagenta, BaseYellow]
 
         # convert image
-        im2 = _convert_image(fname, width,
-                             getattr(self, 'd' + plane[0]),  # e.g. self.dx
-                             getattr(self, 'd' + plane[1]),  # e.g. self.dy
-                             height=height, pal=pal, threshold=threshold)
+        im2, alpha_mask = _convert_image(fname, width,
+                                         getattr(self, 'd' + plane[0]),  # e.g. self.dx
+                                         getattr(self, 'd' + plane[1]),  # e.g. self.dy
+                                         height=height, pal=pal, threshold=threshold)
 
         if flip_x:
             im2 = im2[::-1, :]
@@ -1641,14 +1655,17 @@ class IStack(object):
             ndepth = round(depth / self.dz)
             im_size = [im2.shape[0], im2.shape[1], ndepth]
             im2 = im2[:, :, None, :]
+            alpha_mask = alpha_mask[:, :, None, None]
         elif plane == 'yz':
             ndepth = round(depth / self.dx)
             im_size = [ndepth, im2.shape[0], im2.shape[1]]
             im2 = im2[None, :, :, :]
+            alpha_mask = alpha_mask[None, :, :, None]
         elif plane == 'xz':
             ndepth = round(depth / self.dy)
             im_size = [im2.shape[0], ndepth, im2.shape[1]]
             im2 = im2[:, None, :, :]
+            alpha_mask = alpha_mask[:, None, :, None]
 
         if any(p0 + im_size > self.imgs.shape[:-1]):
             raise ValueError(f'image block of size {im_size} put at {p0} exceeds stack size {self.imgs.shape[:-1]}')
@@ -1659,7 +1676,7 @@ class IStack(object):
         slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]:p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
 
         # assign this array to the original image stack
-        slice[...] = im2
+        slice[...] = np.where(alpha_mask > 0, im2, slice)
         self._imgs.flags.writeable = False
         self.reset()
 
