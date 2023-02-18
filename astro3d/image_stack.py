@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker, gridspec, font_manager
 from matplotlib.colors import LogNorm, Normalize, to_rgb, LinearSegmentedColormap
 from scipy.interpolate import interpn
-from scipy.interpolate import RegularGridInterpolator
 from tqdm.auto import tqdm
 from PIL import Image, ImageFont, ImageDraw
 
@@ -871,23 +870,22 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
 
 
 def dither_palette(img, pal, resize=None, alpha_mask=None):
-    """Dither an image to a given pallette and resizes it to the given number of pixels
+    """Dither an image to a given pallette and resizes it to the given number of pixels.
+    If an alpha channel is provided, this will be rescaled as well.
 
     Parameters
     ----------
     img : array
-        RGB array of size nx, ny, 3
+        RGB array of size nx, ny, 3 or 4
     pal : list | array
         color palette, list of RGB values
     resize : tuple, optional
         new shape of image, 2-element tuple, by default None
-    alpha_mask : None | array
-        a mask that determines alpha in the image
 
     Returns
     -------
     array
-        dithered image, same shape or truncated from RGBA to RGB
+        dithered RGBA image
 
     """
     pal = np.array(pal, ndmin=2)
@@ -897,27 +895,29 @@ def dither_palette(img, pal, resize=None, alpha_mask=None):
         pal = pal[:, :3]
 
     img = np.array(img, ndmin=3)
-    if img.shape[-1] < 3:
-        raise ValueError('image needs to be RGB colors')
-    else:
-        img = img[:, :, :3]
+    if img.shape[-1] not in [3, 4]:
+        raise ValueError('image needs to be RGB or RGBA colors')
 
     # resize
-    im1 = Image.fromarray(img).convert('RGB')
-    if alpha_mask is None:
-        alpha_mask = 255 * np.ones(im1.shape[:2], dtype=np.uint8)
+    im1 = Image.fromarray(img).convert('RGBA')
+
     if resize is not None:
         im1 = im1.resize(tuple(list(resize)[::-1]))
-        alpha_mask = np.array(Image.fromarray(alpha_mask).resize(tuple(list(resize)[::-1])))
+
+    alpha_mask = np.array(im1)[:, :, -1]
 
     # quantize it
     p_img = Image.new('P', (1, 1))
     p_img.putpalette(list(pal.ravel()))
-    im1 = im1.quantize(palette=p_img).convert('RGB')
+    im1 = im1.convert('RGB').quantize(palette=p_img).convert('RGB')
+    im1 = np.array(im1)
 
     # return as array
+    im_out = np.zeros([*im1.shape[:2], 4], dtype=np.uint8)
+    im_out[:, :, :3] = im1
+    im_out[:, :, 3] = alpha_mask
 
-    return np.array(im1), alpha_mask
+    return im_out
 
 
 def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=255):
@@ -968,7 +968,15 @@ def _get_text_image(text, size=100, family='sans-serif', weight='regular', bg=25
 
 
 def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
-    """converts an image file to a grid that matches an image stack
+    """converts an image file to a grid that matches an image stack.
+
+    This will usually dither the image using the palette `pal` or a default palette.
+    Passing `threshold` value will avoid dithering, and use the brightness level to
+    separate into background/foreground. This will then use the first two entries
+    in `pal` to assign foreground & background.
+
+    If the input image is RGBA, the second return value will be a reshaped alpha mask
+    to try and retain the transparency of the image.
 
     Parameters
     ----------
@@ -977,23 +985,27 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
         if image data is 3D (shape=(nx, ny, 3 or 4)), it will be converted as an image (origin='lower')
         if image data is 2D, it will be treated as array (first element = bottom left)
     width : float
-        width of the final logo in cm
+        width of the final logo in cm. Can be set to `None` if `height` is given (keeping the aspect ratio).
     dx : float
         voxel width
     dy : float
         voxel heigh
     height : float, optional
-        height of the final log in cm, by default the aspect ratio is kept
+        height of the final log in cm, by default (`None`) the aspect ratio is kept. If both `width` and
+        `height` are given, this will override the image aspect ratio.
     threshold : None | float
-        if float, the image will be converted to black/white with the given brightness threshold (0.0 ... 1.0).
+        if `float`, the image will be converted to black/white with the given brightness threshold (0.0 ... 1.0).
         The the low (high) value will be filled with the first (second) entry of `pal`. Default Black & White
     pal : list | array, optional
         color palette, list of RGB values, by default None
 
     Returns
     -------
-    array
-        a mask where the logo will be applied
+    array:
+        an RBG image with limited palette of colors and rescaled to match the dimensions of the image stack.
+
+    array:
+        an alpha_mask that can be applied to the image to remove background on the rescaled image.
     """
 
     # we use the the 3 colors + black and white as default
@@ -1029,29 +1041,23 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     nx = int(np.ceil(width / dx))
     ny = int(np.ceil(height / dy))
 
-    # handle alpha
-    if im.shape[-1] == 4:
-        alpha_mask = im[:, :, -1]
-        im = im[:, :, :3]
-    else:
-        alpha_mask = 255 * np.ones(im.shape[:2]).astype(np.uint8)
-
-    alpha_mask = np.array(Image.fromarray(alpha_mask).resize((ny, nx)))
-    alpha_mask[alpha_mask < 255] = 0.0
-
     if threshold is None:
-        # interpolate
-        im, alpha_mask = dither_palette(im, pal, resize=(nx, ny), alpha_mask=alpha_mask)
+        # DITHERING
+        im = dither_palette(im, pal, resize=(nx, ny))
     else:
         # reshape without dithering
-        im = Image.fromarray(im).convert('RGB')
+        im = Image.fromarray(im).convert('RGBA')
         im = np.array(im.resize((ny, nx)))
 
-        # make it binary
-        mask = (im.mean(-1) / 255) < threshold
-        im[...] = np.where(mask[:, :, None], pal[0], pal[1])
+        # make the alpha channel binary
+        alpha_mask = np.where(im[:, :, 3] > 0, 255, 0).astype(np.uint8)
 
-    return im, alpha_mask
+        # make the image binary
+        mask = (im[:, :, :3].mean(-1) / 255) < threshold
+        im[:, :, :3] = np.where(mask[:, :, None], pal[0], pal[1])
+        im[:, :, 3] = alpha_mask
+
+    return im
 
 
 class IStack(object):
@@ -1608,29 +1614,34 @@ class IStack(object):
 
     def add_logo(self, fname, pos, width, depth, plane='xz',
                  height=None, flip_x=False, flip_y=False, pal=None, threshold=None):
-        """adds a logo based on an image file to the image stack
+        """adds a logo to the image stack based on an image file
 
         Parameters
         ----------
-        fname : str | pathlib.Path
-            file name of the logo image
+        fname : str | pathlib.Path | Image | array
+            file name of the logo image or an image object / array
         pos : array
             position of the logo in x, y, z in units of cm
         width : float
-            logo width in cm
+            logo width in cm. Can be set to `None` if height is given instead.
+            Then `height` and keeping the aspect ratio will determine the width.
         depth : float
-            depth of the image in cm
+            depth of the image in cm (how thick it is). We recommend something like
+            7-10 * dx to make it optically thick.
         plane : str
             in which plane the image should be printed: 'xy', 'yz', or 'xz' (default)
         height : float, optional
-            height of logo, by default None
+            height of logo, by default None which will keep the aspect ratio given `width`
         flip_x, flip_y : bool
             if the logo should be flipped in (its) x or y direction
         pal : None | array
-            palette to use for dithering the text
+            palette to use for dithering the logo. Will default to the `Base` color pallete
+            specified by Stratasys.
         threshold : None | float
-            if no dithering, but a brightness threshold (0.0 ... 1.0) should be used, pass this here
-
+            If the image should not be dithered, but a brightness threshold (0.0 ... 1.0)
+            should be used instead to make a binary image, pass this here. For an image
+            made of a single print material, this gets rid of the dithering noise.
+            The the low (high) brightness value will be filled with the first (second) entry of `pal`
         """
         if plane not in ['xy', 'yz', 'xz']:
             raise ValueError('plane does not exist')
@@ -1639,10 +1650,13 @@ class IStack(object):
             pal = [BaseBlack, BaseWhite, BaseCyan, BaseMagenta, BaseYellow]
 
         # convert image
-        im2, alpha_mask = _convert_image(fname, width,
-                                         getattr(self, 'd' + plane[0]),  # e.g. self.dx
-                                         getattr(self, 'd' + plane[1]),  # e.g. self.dy
-                                         height=height, pal=pal, threshold=threshold)
+        im2 = _convert_image(fname, width,
+                             getattr(self, 'd' + plane[0]),  # e.g. self.dx
+                             getattr(self, 'd' + plane[1]),  # e.g. self.dy
+                             height=height, pal=pal, threshold=threshold)
+
+        alpha_mask = im2[:, :, 3]
+        im2 = im2[:, :, :3]
 
         if flip_x:
             im2 = im2[::-1, :]
@@ -1677,7 +1691,7 @@ class IStack(object):
         slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]:p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
 
         # assign this array to the original image stack
-        slice[...] = np.where(alpha_mask > 0, im2, slice)
+        slice[...] = np.where(alpha_mask == 255, im2, slice)
         self._imgs.flags.writeable = False
         self.reset()
 
