@@ -779,12 +779,17 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     else:
         ff = (norm(data.ravel())).sum() / np.product(data.shape)
 
-    ticks = np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
-
     ax2 = ax.secondary_xaxis('top', functions=(norm.inverse, norm))
     ax2.set_xlabel('original density')
-    ax2.get_xaxis().set_major_locator(ticker.LogLocator())
-    ax2.get_xaxis().set_ticks(10.**ticks)
+
+    if type(norm).__name__ == 'Normalize':
+        ticks = np.array(norm.inverse([0, 1]))
+    elif type(norm).__name__ == 'LogNorm':
+        ticks = 10.**np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
+        ax2.get_xaxis().set_major_locator(ticker.LogLocator())
+        ax2.get_xaxis().set_ticks(10.**ticks)
+    else:
+        raise ValueError('unknown norm type given')
 
     ax.text(0.05, 0.95, f'approximate filling factor = {ff:.2%}', va='top', transform=ax.transAxes)
 
@@ -869,7 +874,7 @@ def streamline(x, y, z, vel, p, length=1.0, n_steps=50):
     return path
 
 
-def dither_palette(img, pal, resize=None, alpha_mask=None):
+def dither_palette(img, pal, resize=None):
     """Dither an image to a given pallette and resizes it to the given number of pixels.
     If an alpha channel is provided, this will be rescaled as well.
 
@@ -1886,8 +1891,9 @@ class IStack(object):
             font family, by default 'sans-serif'
         weight : str, optional
             font weight, by default 'regular'
-        bg : int
-            background brightness, white by default 255
+        bg : int | color, optional
+            background brightness, by default `255` = white.
+            can also be a color specification like `[128, 128, 128]`.
 
         """
         img = _get_text_image(text, size=size, family=family, weight=weight, bg=255)
