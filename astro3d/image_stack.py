@@ -57,15 +57,18 @@ def cmyk_to_rgb(CMYK):
 
 
 # define the rigid Vero™ colors
-VeroT_sRGB = np.array([255, 255, 255])
-VeroC_sRGB = np.array([29, 85, 111])
-VeroM_sRGB = np.array([149, 39, 87])
-VeroY_sRGB = np.array([192, 183, 52])
+VeroB_sRGB = np.array([26, 26, 29])
+VeroW_sRGB = np.array([255, 255, 255])
+VeroC_sRGB = np.array([0, 93, 127])
+VeroM_sRGB = np.array([166, 33, 98])
+VeroY_sRGB = np.array([200, 189, 17])
 
 # define the RGB values of CMY
 C_sRGB = cmyk_to_rgb(np.array([100, 0, 0, 0])).astype(int)
 M_sRGB = cmyk_to_rgb(np.array([0, 100, 0, 0])).astype(int)
 Y_sRGB = cmyk_to_rgb(np.array([0, 0, 100, 0])).astype(int)
+W_sRGB = [255, 255, 255]
+B_sRGB = [0, 0, 0]
 
 # colors defined in the VoxelPrinting Guide
 BaseCyan = np.array([0, 89, 158])
@@ -73,6 +76,30 @@ BaseMagenta = np.array([161, 35, 99])
 BaseYellow = np.array([213, 178, 0])
 BaseBlack = np.array([30, 30, 30])
 BaseWhite = np.array([220, 222, 216])
+
+
+base_palette = [
+    BaseWhite,
+    BaseBlack,
+    BaseMagenta,
+    BaseCyan,
+    BaseYellow]
+
+vero_palette = [
+    VeroB_sRGB,
+    VeroW_sRGB,
+    VeroC_sRGB,
+    VeroM_sRGB,
+    VeroY_sRGB
+]
+
+cmyk_palette = [
+    C_sRGB,
+    M_sRGB,
+    Y_sRGB,
+    W_sRGB,
+    B_sRGB
+]
 
 
 def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None, clip=None):
@@ -182,6 +209,86 @@ def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None
         color_density = layer_norm
 
     return color_density
+
+
+def approx_view(data, Lx, fill=1.0, norm=None):
+    """Approximate the view from three sides
+
+    Parameters
+    ----------
+    data : np.ndarray
+        the 3D data to vizalize
+    Lx : float
+        length in cm in x-dimension
+    fill : float, optional
+        filling factor to reduce opacity, by default 1.0
+    norm : normalization, optional
+        if it is not None, this norm will be applied to the data, by default None
+
+    Returns
+    -------
+    f, ax
+        figure and axes of the plot
+    """
+
+    if norm is not None:
+        data = norm(data.ravel()).reshape(data.shape)
+
+    xi = np.arange(data.shape[0] + 1) - 0.5
+    yi = np.arange(data.shape[1] + 1) - 0.5
+    zi = np.arange(data.shape[2] + 1) - 0.5
+
+    # we needed something like 7-10 layers to become optically thick
+    # so we estimate the length to optical depth of 1 with 7 * dx
+    dpi_x = 600
+    dx = 2.54 / dpi_x
+    L_tau = 7 * dx
+    Ly = Lx / data.shape[0] * data.shape[1]
+    Lz = Lx / data.shape[0] * data.shape[2]
+
+    est_yz = data.sum(0) / data.shape[0] * Lx / L_tau
+    est_xz = data.sum(1) / data.shape[1] * Ly / L_tau
+    est_xy = data.sum(2) / data.shape[2] * Lz / L_tau
+
+    f = plt.figure(figsize=(
+        6 * (1 + data.shape[2] / data.shape[1]),
+        6 * (1 + data.shape[2] / data.shape[0])))
+
+    gs = gridspec.GridSpec(
+        2, 2,
+        width_ratios=[1, data.shape[2] / data.shape[1]],
+        height_ratios=[1, data.shape[2] / data.shape[0]])
+
+    gs.update(wspace=0.0, hspace=0.0)
+
+    opts = dict(vmin=0, vmax=1 / fill, cmap='gray_r')
+
+    ax1 = plt.subplot(gs[0, 0])
+    ax1.pcolormesh(xi, yi, est_xy.T, **opts)
+    ax1.set_aspect('equal')
+    ax1.xaxis.set_ticks([])
+    ax1.set_xlabel('z-axis')
+    ax1.set_xlabel('y-axis')
+
+    ax2 = plt.subplot(gs[0, 1])
+    ax2.pcolormesh(zi, yi, np.rot90(est_yz.T, axes=(1, 0)), **opts)
+    ax2.set_aspect('equal')
+    ax2.set_ylabel('y-axis')
+
+    ax2.xaxis.set_label_position('top')
+    ax2.xaxis.tick_top()
+    ax2.yaxis.set_label_position('right')
+    ax2.yaxis.tick_right()
+
+    ax3 = plt.subplot(gs[1, 0])
+    ax3.pcolormesh(xi, zi, est_xz.T, **opts)
+    ax3.set_aspect('equal')
+    ax3.set_xlabel('x-axis')
+    ax3.set_ylabel('z-axis')
+
+    gs.update(wspace=0.0, hspace=0.0)
+
+    return f, (ax1, ax2, ax3)
 
 
 def add_streamlines(coords, z2, iz, layer_dithered, streamlines, radius=None):
@@ -457,7 +564,7 @@ def makeslice_from_colordensity(path, color_density, iz, fill=1.0, colors=None, 
 
 
 def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices',
-            norm=None, pool=None, vmin=None, vmax=None, iz=None, x=None, y=None, z=None):
+            norm=None, f=1.0, pool=None, vmin=None, vmax=None, iz=None, x=None, y=None, z=None):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -480,6 +587,8 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
         use the given norm,
         or a log norm if set to 'log' or None
         or linear norm if set to 'lin', by default None
+    f : float, optional
+        filling factor, default 1.0
     pool : None or pool object, optional
         pool for parallel processing, by default None
     vmin : None or float, optional
@@ -578,6 +687,9 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
                 repeat(coords),
                 repeat(norm),
                 repeat(path),
+                repeat(None),
+                repeat(None),
+                repeat(f),
                 ),
             total=n))
     else:
@@ -593,6 +705,9 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
                             repeat(coords),
                             repeat(norm),
                             repeat(path),
+                            repeat(None),
+                            repeat(None),
+                            repeat(f),
                         ), total=n),
                     chunksize=4))
 
@@ -608,7 +723,7 @@ def index_lookup(img, palette):
     return ix[np.searchsorted(p1d, img @ M)]
 
 
-def check_colors(imgs, stride=5, nmax=8):
+def check_colors(imgs, stride=5, nmax=8, sorting='luma'):
     """Finds a list of unique colors in the given stack using the fortran module.
 
     Parameters
@@ -624,6 +739,8 @@ def check_colors(imgs, stride=5, nmax=8):
         how many colors can be detected, by default 8
         we need an estimate of how many colors should be in the image
         as the fortran->python interface f2py cannot do allocatable arrays
+    sorting : str
+        how the colors are sorted. default is by "luma"
 
     Returns
     -------
@@ -638,8 +755,13 @@ def check_colors(imgs, stride=5, nmax=8):
     # so we need to pick
     colors = colors[:ncol, :]
 
-    # we sort them "alphabetically", so white should be on the top
-    colors = colors[np.lexsort(np.fliplr(colors).T)][::-1, :]
+    if sorting == 'lex':
+        # we sort them "alphabetically", so white should be on the top
+        colors = colors[np.lexsort(np.fliplr(colors).T)][::-1, :]
+    elif sorting == 'luma':
+        # we sort them by luminosity, but in reverse, so white would be first
+        L = (0.212 * colors[:, 0] + 0.701 * colors[:, 1] + 0.087 * colors[:, 2])
+        colors = colors[np.argsort(L)[::-1], :]
 
     return colors
 
@@ -777,17 +899,17 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
         color_density = 1. / (1 + dist_sq) * fill
         ff = color_density.sum() / np.product(data.shape)
     else:
-        ff = (norm(data.ravel())).sum() / np.product(data.shape)
+        ff = (norm(data.ravel(), clip=True)).sum() / np.product(data.shape)
 
     ax2 = ax.secondary_xaxis('top', functions=(norm.inverse, norm))
     ax2.set_xlabel('original density')
 
-    if type(norm).__name__ == 'Normalize':
+    if type(norm).__name__ in ['Normalize', 'AsinhNorm']:
         ticks = np.array(norm.inverse([0, 1]))
     elif type(norm).__name__ == 'LogNorm':
         ticks = 10.**np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
         ax2.get_xaxis().set_major_locator(ticker.LogLocator())
-        ax2.get_xaxis().set_ticks(10.**ticks)
+        ax2.get_xaxis().set_ticks(ticks)
     else:
         raise ValueError('unknown norm type given')
 
@@ -1193,7 +1315,6 @@ class IStack(object):
         """
         self._colors = check_colors(self.imgs, nmax=8, stride=stride)
         self._ncol = len(self._colors)
-        print('Done!')
 
     @property
     def counts(self):
@@ -1665,8 +1786,10 @@ class IStack(object):
 
         if flip_x:
             im2 = im2[::-1, :]
+            alpha_mask = alpha_mask[::-1, :]
         if flip_y:
             im2 = im2[:, ::-1]
+            alpha_mask = alpha_mask[:, ::-1]
 
         # convert position from cm to index
         p0 = (pos / np.array([self.dx, self.dy, self.dz])).astype(int)
