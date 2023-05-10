@@ -1,5 +1,5 @@
 module fmodule
-USE OMP_LIB
+!$ use omp_lib
 
     DOUBLE PRECISION :: fill_value=0d0
 
@@ -49,7 +49,7 @@ subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
     !$OMP DO
     do ix = 1, nx
         do iy = 1, ny
-            dum = exp(-(x(ix, iy) - x0)**2 / (2 * sigma**2))
+            dum = exp(-(x(ix, iy) - x0) * (x(ix, iy) - x0) / (2 * sigma * sigma))
             do ic = 1, 4
                 rgba(ix, iy, ic) = SUM(colors(:, ic) * dum)
             end do
@@ -603,5 +603,72 @@ subroutine get_colors_1D(stack, icol, nr_in, nc, nout, cols)
 
 end subroutine get_colors_1D
 
+
+subroutine get_threads(n)
+    implicit none
+    integer, intent(out) :: n
+    n = 0
+    !$ n = omp_get_max_threads()
+
+end subroutine get_threads
+
+
+subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, nx, ny, nz, np)
+    implicit none
+    integer, intent(in) :: nx, ny, nz, np, n_sigma
+    double precision, intent(in) :: xg(nx), yg(ny), zg(nz)
+    double precision, intent(out) :: image(nx, ny, nz)
+    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np), weights(np)
+    !f2py integer optional,intent(in) :: weights(np) = 1.0
+
+    double precision, parameter :: PI=4.D0 * DATAN(1.D0)
+    double precision, parameter :: fact = 1 / (sqrt(2 * PI)) ! denominator of the gaussian
+
+    integer :: ix, iy, iz, istar, ix0, iy0, ix1, iy1
+
+    double precision :: lower_bound(np), upper_bound(np)
+
+    lower_bound = zi - n_sigma * sigma
+    upper_bound = zi + n_sigma * sigma
+
+    image = 0.0
+
+    ! loop through the slices
+    !$OMP PARALLEL DO PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1) SHARED(image) SCHEDULE(STATIC)
+    DO iz = 1, nz
+
+        ! find the lowest and highest indices of stars that may contribute
+        ! note: this might actually include stars outside of their n_sigma
+        ! contribution range
+        do istar = 1, np
+            if (.not.( (lower_bound(istar) .le. zg(iz)) .and. (upper_bound(istar) .ge. zg(iz)) )) then
+                cycle
+            endif
+        
+            ! find the bounds around the star where we might add density
+            call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
+            call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
+            call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
+            call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
+
+            ix0 = max(ix0, 1)
+            ix1 = min(ix1, nx)
+            iy0 = max(iy0, 1)
+            iy1 = min(iy1, ny)
+                
+            DO iy=iy0, iy1
+                DO ix=ix0, ix1
+                    image(ix, iy, iz) = image(ix, iy, iz) + weights(istar) * &
+                        & exp(- ( & 
+                            (xg(ix) - xi(istar))**2  + &
+                            (yg(iy) - yi(istar))**2  + &
+                            (zg(iz) - zi(istar))**2  &
+                        ) / (2 * sigma(istar)**2)) * fact / sigma(istar)
+                END DO
+            END DO
+        END DO
+    END DO
+    !$OMP END PARALLEL DO
+end subroutine point_cloud
 
 end module
