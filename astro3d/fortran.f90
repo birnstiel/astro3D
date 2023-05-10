@@ -613,13 +613,14 @@ subroutine get_threads(n)
 end subroutine get_threads
 
 
-subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, nx, ny, nz, np)
+subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, nx, ny, nz, np, ncol)
     implicit none
-    integer, intent(in) :: nx, ny, nz, np, n_sigma
+    integer, intent(in) :: nx, ny, nz, np, n_sigma, ncol
     double precision, intent(in) :: xg(nx), yg(ny), zg(nz)
-    double precision, intent(out) :: image(nx, ny, nz)
-    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np), weights(np)
-    !f2py integer optional,intent(in) :: weights(np) = 1.0
+    double precision, intent(out) :: image(nx, ny, nz, ncol)
+    !f2py integer :: ncol = 1
+    !f2py double precision optional, intent(in) :: weights(np, ncol) = 1.0
+    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np), weights(np, ncol)
 
     double precision, parameter :: PI=4.D0 * DATAN(1.D0)
     double precision, parameter :: fact = 1 / (sqrt(2 * PI)) ! denominator of the gaussian
@@ -658,7 +659,7 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
                 
             DO iy=iy0, iy1
                 DO ix=ix0, ix1
-                    image(ix, iy, iz) = image(ix, iy, iz) + weights(istar) * &
+                    image(ix, iy, iz, :) = image(ix, iy, iz, :) + weights(istar, :) * &
                         & exp(- ( & 
                             (xg(ix) - xi(istar))**2  + &
                             (yg(iy) - yi(istar))**2  + &

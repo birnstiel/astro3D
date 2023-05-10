@@ -1187,6 +1187,59 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     return im
 
 
+def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=None, xg=None, yg=None, zg=None, n=None):
+    """Create an image stack from a list of points
+
+    Parameters
+    ----------
+    xi : array
+        1D array of x positions of the points
+    yi : array
+        1D array of y positions of the points
+    zi : array
+        1D array of z positions of the points
+    sigmas : array, optional
+        1D array of the extends of the gaussian density of each point, by default 1.0
+    n_sigma : int, optional
+        after how many sigmas to clip the contribution of the point, by default 5
+    weights : array, optional
+        how to weight each points density. Can be 2D in which case each weight might be one color channel, by default 1.0
+    xg : array, optional
+        x-grid of the image, will use uniform of length `n` by default
+    yg : array, optional
+        y-grid of the image, will use uniform of length `n` by default
+    zg : array, optional
+        z-grid of the image, will use uniform of lenght `n` by default
+    n : int, optional
+        if `xy, yg, zg` are not given, linear grids of shape `n` will be created, by default 500
+
+    Returns
+    -------
+    np.ndarray
+        The resulting image stack of shape `(len(xg), len(yg), len(zg), weights.shape[1])`.
+    """
+    if (n is None) and ((xg is None) or (yg is None) or (zg is None)):
+        raise ValueError('if grids `xg, yg, zg` are not given, need to specify `n`!')
+
+    n = n or 500
+    if xg is None:
+        xg = np.linspace(xi.min(), xi.max(), n)
+    if yg is None:
+        yg = np.linspace(yi.min(), yi.max(), n)
+    if zg is None:
+        zg = np.linspace(zi.min(), zi.max(), n)
+
+    if weights is None:
+        weights = np.ones([len(xi), 1])
+
+    if sigmas is None:
+        sigmas = np.ones([len(xi), 1])
+
+    image = fmodule.point_cloud(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
+
+    return image
+
+
 class IStack(object):
     def __init__(self, input, dpi_x=600, dpi_y=300, dz=27e-4):
         """Image stack for 3D printing.
