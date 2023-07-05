@@ -1,35 +1,50 @@
 module fmodule
-!$ use omp_lib
+    !$ use omp_lib
+    implicit none
 
     DOUBLE PRECISION :: fill_value=0d0
+    INTEGER :: numthreads = -1
 
     contains
 
+
+subroutine set_threads()
+    implicit none
+    if (numthreads .eq. -1) then
+        !$ numthreads = omp_get_max_threads()
+    endif
+    if (numthreads < 1) then
+        numthreads = 1
+    endif
+
+end subroutine set_threads
+
+
 subroutine render(image, data, x0, sigma, colors, bg, nx, ny, nz, N)
-implicit none
-INTEGER, INTENT(IN) :: nx, ny, nz, N
-DOUBLE PRECISION, INTENT(IN) :: bg
-!f2py DOUBLE PRECISION OPTIONAL, INTENT(IN) :: bg = 0.0
-DOUBLE PRECISION, intent(out) :: image(nx, ny, 4)
-DOUBLE PRECISION, intent(in) :: data(nx, ny, nz)
-DOUBLE PRECISION, intent(in), DIMENSION(N) :: x0, sigma
-DOUBLE PRECISION, intent(in), DIMENSION(N, 4) :: colors
-DOUBLE PRECISION, DIMENSION(nx, ny) :: slice
-DOUBLE PRECISION, DIMENSION(nx, ny, 4) :: rgba
-integer :: i
+    implicit none
+    INTEGER, INTENT(IN) :: nx, ny, nz, N
+    DOUBLE PRECISION, INTENT(IN) :: bg
+    !f2py DOUBLE PRECISION OPTIONAL, INTENT(IN) :: bg = 0.0
+    DOUBLE PRECISION, intent(out) :: image(nx, ny, 4)
+    DOUBLE PRECISION, intent(in) :: data(nx, ny, nz)
+    DOUBLE PRECISION, intent(in), DIMENSION(N) :: x0, sigma
+    DOUBLE PRECISION, intent(in), DIMENSION(N, 4) :: colors
+    DOUBLE PRECISION, DIMENSION(nx, ny) :: slice
+    DOUBLE PRECISION, DIMENSION(nx, ny, 4) :: rgba
+    integer :: i
 
-image = bg
+    image = bg
 
-do i = 1, nz
-    slice = data(:, :, i)
-    call transferfunction(slice, x0, sigma, colors, nx, ny, n, rgba)
-    image(:, :, 1) = rgba(:, :, 4) * rgba(:, :, 1) + (1 - rgba(:, :, 4)) * image(:, :, 1)
-    image(:, :, 2) = rgba(:, :, 4) * rgba(:, :, 2) + (1 - rgba(:, :, 4)) * image(:, :, 2)
-    image(:, :, 3) = rgba(:, :, 4) * rgba(:, :, 3) + (1 - rgba(:, :, 4)) * image(:, :, 3)
-    image(:, :, 4) = image(:, :, 4) + rgba(:, :, 4)
-end do
-
+    do i = 1, nz
+        slice = data(:, :, i)
+        call transferfunction(slice, x0, sigma, colors, nx, ny, n, rgba)
+        image(:, :, 1) = rgba(:, :, 4) * rgba(:, :, 1) + (1 - rgba(:, :, 4)) * image(:, :, 1)
+        image(:, :, 2) = rgba(:, :, 4) * rgba(:, :, 2) + (1 - rgba(:, :, 4)) * image(:, :, 2)
+        image(:, :, 3) = rgba(:, :, 4) * rgba(:, :, 3) + (1 - rgba(:, :, 4)) * image(:, :, 3)
+        image(:, :, 4) = image(:, :, 4) + rgba(:, :, 4)
+    end do
 end subroutine render
+
 
 subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
     implicit none
@@ -42,10 +57,12 @@ subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
     DOUBLE PRECISION, DIMENSION(n) :: dum
     integer :: ix, iy, ic
     
+    ! update the number of threads
+    call set_threads()
+    
     !vals = colors[..., :, :] * A[..., :, None] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
     ! all the "SPREAD"s do a broadcasting like np.newaxis in numpy to make the arrays of shape (nx, ny, n, 4)
-
-    !$OMP PARALLEL PRIVATE(dum) SHARED(rgba)
+    !$OMP PARALLEL num_threads(numthreads) PRIVATE(dum) SHARED(rgba)
     !$OMP DO
     do ix = 1, nx
         do iy = 1, ny
@@ -113,7 +130,7 @@ subroutine dither(input, output, nx, ny)
 ! input should be double precision with values between 0.0 and 1.0
 ! output will only have 0.0 or 1.0
 subroutine dither_colors(input, output, nx, ny, nc)
-    integer, intent(in) :: nx, ny
+    integer, intent(in) :: nx, ny, nc
     double precision, intent(in) :: input(nx, ny, nc)
     double precision, intent(out) :: output(nx, ny, nc)
     
@@ -604,15 +621,6 @@ subroutine get_colors_1D(stack, icol, nr_in, nc, nout, cols)
 end subroutine get_colors_1D
 
 
-subroutine get_threads(n)
-    implicit none
-    integer, intent(out) :: n
-    n = 0
-    !$ n = omp_get_max_threads()
-
-end subroutine get_threads
-
-
 subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, nx, ny, nz, np, ncol)
     implicit none
     integer, intent(in) :: nx, ny, nz, np, n_sigma, ncol
@@ -625,9 +633,15 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
     double precision, parameter :: PI=4.D0 * DATAN(1.D0)
     double precision, parameter :: fact = 1 / (sqrt(2 * PI)) ! denominator of the gaussian
 
-    integer :: ix, iy, iz, istar, ix0, iy0, ix1, iy1
+    integer :: ix, iy, iz, istar, ix0, iy0, ix1, iy1, tick
 
-    double precision :: lower_bound(np), upper_bound(np)
+    double precision :: lower_bound(np), upper_bound(np), perc_progress
+
+    character*1 creturn
+    creturn = achar(13)  !  generate carriage return
+
+    ! assure number of threads is up to date
+    call set_threads()
 
     lower_bound = zi - n_sigma * sigma
     upper_bound = zi + n_sigma * sigma
@@ -635,7 +649,10 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
     image = 0.0
 
     ! loop through the slices
-    !$OMP PARALLEL DO PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1) SHARED(image) SCHEDULE(STATIC)
+    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1) SHARED(image, tick)
+    tick = 0
+    !$ if (omp_get_thread_num()==0) write(*, '(A, I3)') 'number of threads', omp_get_num_threads()
+    !$OMP DO SCHEDULE(STATIC)
     DO iz = 1, nz
 
         ! find the lowest and highest indices of stars that may contribute
@@ -668,8 +685,19 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
                 END DO
             END DO
         END DO
+
+        !progress bar
+        tick = tick + 1
+        perc_progress = (tick-1.0) / (nz - 1.0) * 100
+        if (mod(tick, 10) .eq. 0) then
+            write(*, "(A, F6.2, A)", ADVANCE='NO') creturn, perc_progress, '% complete'
+            call flush(6)
+        endif
+
     END DO
-    !$OMP END PARALLEL DO
+    !$OMP END  DO
+    !$OMP END PARALLEL
+    write(*, '(A,A)') creturn, '100.00% complete'
 end subroutine point_cloud
 
 end module
