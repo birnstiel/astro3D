@@ -1246,8 +1246,11 @@ class IStack(object):
 
         Parameters
         ----------
-        input : str | Path | numpy.ndarray
+        input : str | Path | numpy.ndarray | array
             input can be a directory with image files or a 3D numpy array
+            if it is a 3-element list, it is assume to be the length in
+            x, y, and z dimension in units of cm and an empty stack 
+            will be initialized.
         dpi_x : float
             x-resolution in DPI
         dpi_y : float
@@ -1287,8 +1290,12 @@ class IStack(object):
             collection = imread_collection(str(self.directory / '*.png'))
             self._imgs = collection.concatenate()
             self.imgs = self._imgs.transpose(2, 1, 0, 3)[:, ::-1, ...]
+        elif isinstance(input, list) and len(input) == 3:
+            # make a box of the size of the input lengths
+            nx, ny, nz = (np.array(input) / 2.54 * [self.dpi_x, self.dpi_y, self.dpi_z]).astype(int)
+            self.imgs = np.zeros([nx, ny, nz, 3], dtype=np.uint8)
         else:
-            raise ValueError('input has to be directory or numpy ndarray')
+            raise ValueError('input has to be directory or numpy ndarray or size array')
 
         # we make it unwritable so that it can only changed via the property, or
         # within functions, where we need to call the update() function to reset
@@ -1302,6 +1309,8 @@ class IStack(object):
 
         # which indices are empty
         self._empty_indices = None
+
+        self.reset()
 
     @property
     def imgs(self):
@@ -1426,6 +1435,7 @@ class IStack(object):
         self._imgs.flags.writeable = True
         self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
         self._imgs.flags.writeable = False
+        self.reset()
 
     def replace_color_mix(self, i_col, repl_colors, f=[1]):
         """Replaces the color at index `i_col` with a *mix* of new colors.
