@@ -12,6 +12,55 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def RGB_cmap(name='magma', ncol=None, alpha=None, RGBA=False):
+    """Create a copy of a default colormap with transparency.
+
+    Parameters
+    ----------
+    name : str, optional
+        colormap name, by default 'magma'
+    ncol : int, optional
+        number of color steps, defaults to 256
+    alpha : None | array, optional
+        can give an alpha array (0.0 ... 1.0), by default
+        it will use a logistic function:
+        1 - 1 / (exp((x - 0.25) / 0.1)**2 + 1)
+    RGBA : bool, optional
+        False (default): will turn transparency to white RGB
+        True: will use actual transparency in RGBA
+
+    Returns
+    -------
+    colormap
+    """
+
+    cmap = plt.get_cmap(name)
+
+    # get a float RGBA color array from it of length `ncol`
+    if alpha is None:
+        ncol = ncol or 256
+    else:
+        ncol = ncol or len(alpha)
+        if ncol != len(alpha):
+            raise ValueError('ncol must be length of alpha')
+
+    x = np.linspace(0, 1, ncol)
+    rgba = (cmap(x) * 255).astype(np.uint8) / 255
+
+    # define a transparency
+    if alpha is None:
+        alpha = 1 - 1 / (np.exp((x - 0.25)/0.1)**2 + 1)
+
+    if RGBA:
+        rgba[:, -1] = alpha
+    else:
+        rgba = rgba * alpha[:, None] + (1 - alpha[:, None])
+        rgba[:, -1] = 1.0
+
+    # make a cmap out of it
+    return ListedColormap(rgba, f'white-{name}')
+
+
 def get_cmyk_cmap(cmap, ncol=50):
     # first handle the input to make it a cmap from a string, an array or a list
     if isinstance(cmap, list):
@@ -25,16 +74,21 @@ def get_cmyk_cmap(cmap, ncol=50):
             cmap = cmap / 255
         cmap = ListedColormap(cmap, 'input')
 
-    # get an integer RGBA color array from it of length `ncol`
+    # get a FLOAT RGBA color array from it of length `ncol`
     x = np.linspace(0, 1, ncol)
-    rgb = (cmap(x) * 255).astype(np.uint8)
+    rgba = cmap(x)
+
+    # turn the alpha value into a white-background
+    alpha = rgba[:, -1][:, None]
+    rgba = rgba * alpha + (1 - alpha)
+    rgba[:, -1] = 1.0
 
     # turn it into CMY with zero K
-    cmyk = 255 - rgb
-    cmyk[:, -1] = 0
+    cmyk = 1 - rgba
+    cmyk[:, -1] = 0.0
 
     # turn this into a color map that returns CMYK values
-    cmy_cmap = CMYListedColormap(cmyk / 255, 'CMY')
+    cmy_cmap = CMYListedColormap(cmyk, 'CMY')
 
     return cmy_cmap
 

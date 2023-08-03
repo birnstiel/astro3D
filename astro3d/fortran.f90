@@ -648,7 +648,7 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
 
     image = 0.0
 
-    ! loop through the slices
+    ! loop through slices: since each thread fills one slice, we can have the image array be shared (no overwriting)
     !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1) SHARED(image, tick)
     tick = 0
     !$ if (omp_get_thread_num()==0) write(*, '(A, I3)') 'number of threads', omp_get_num_threads()
@@ -698,6 +698,103 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
     !$OMP END  DO
     !$OMP END PARALLEL
     write(*, '(A,A)') creturn, '100.00% complete'
+    !close(6)
 end subroutine point_cloud
+
+
+subroutine point_cloud_colored(xg, yg, zg, xi, yi, zi, sigma, image, alpha, weights, n_sigma, nx, ny, nz, np, ncol)
+    implicit none
+    integer, intent(in) :: nx, ny, nz, np, n_sigma, ncol
+    double precision, intent(in) :: xg(nx), yg(ny), zg(nz)
+    integer, intent(out) :: image(nx, ny, nz, ncol-1)
+    double precision, intent(out) :: alpha(nx, ny, nz)
+    !f2py integer :: ncol = 1
+    !f2py double precision optional, intent(in) :: weights(np, ncol) = 1.0
+    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np), weights(np, ncol)
+    
+    double precision :: temp_image(nx, ny, ncol), temp_max(nx, ny)
+    double precision, parameter :: PI=4.D0 * DATAN(1.D0)
+    double precision, parameter :: fact = 1 / (sqrt(2 * PI)) ! denominator of the gaussian
+
+    integer :: ix, iy, iz, istar, ix0, iy0, ix1, iy1, tick, icol
+
+    double precision :: lower_bound(np), upper_bound(np), perc_progress
+
+    character*1 creturn
+    creturn = achar(13)  !  generate carriage return
+
+    ! assure number of threads is up to date
+    call set_threads()
+
+    lower_bound = zi - n_sigma * sigma
+    upper_bound = zi + n_sigma * sigma
+
+    image = 0
+    alpha = 0.0
+
+    ! loop through slices: since each thread fills one slice, we can have the image array be shared (no overwriting)
+    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1, icol, temp_image, temp_max) &
+    !$OMP SHARED(image, alpha, tick)
+    tick = 0
+    !$ if (omp_get_thread_num()==0) write(*, '(A, I3)') 'number of threads', omp_get_num_threads()
+    !$OMP DO SCHEDULE(STATIC)
+    DO iz = 1, nz
+
+        temp_image = 0.0
+
+        ! find the lowest and highest indices of stars that may contribute
+        ! note: this might actually include stars outside of their n_sigma
+        ! contribution range
+        do istar = 1, np
+            if (.not.( (lower_bound(istar) .le. zg(iz)) .and. (upper_bound(istar) .ge. zg(iz)) )) then
+                cycle
+            endif
+        
+            ! find the bounds around the star where we might add density
+            call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
+            call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
+            call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
+            call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
+
+            ix0 = max(ix0, 1)
+            ix1 = min(ix1, nx)
+            iy0 = max(iy0, 1)
+            iy1 = min(iy1, ny)
+                
+            DO iy=iy0, iy1
+                DO ix=ix0, ix1
+                    temp_image(ix, iy, :) = temp_image(ix, iy, :) + weights(istar, :) * &
+                        & exp(- ( & 
+                            (xg(ix) - xi(istar))**2  + &
+                            (yg(iy) - yi(istar))**2  + &
+                            (zg(iz) - zi(istar))**2  &
+                        ) / (2 * sigma(istar)**2)) * fact / sigma(istar)
+                END DO
+            END DO
+        END DO
+
+        ! we assign all values apart from the last like colors, so they get normalized to [0 ... 255]
+        ! alpha is just kept a float
+        temp_max = MAXVAL(temp_image, 3)
+        DO icol = 1, ncol - 1
+            image(:, :, iz, icol) = INT(255 * temp_image(:, :, icol) / temp_max)
+        END DO
+        alpha(:, :, iz) = temp_image(:, :, ncol)
+
+        !progress bar
+        tick = tick + 1
+        perc_progress = (tick-1.0) / (nz - 1.0) * 100
+        if (mod(tick, 10) .eq. 0) then
+            write(*, "(A, F6.2, A)", ADVANCE='NO') creturn, perc_progress, '% complete'
+            call flush(6)
+        endif
+
+    END DO
+    !$OMP END  DO
+    !$OMP END PARALLEL
+    write(*, '(A,A)') creturn, '100.00% complete'
+    !close(6)
+end subroutine point_cloud_colored
+
 
 end module
