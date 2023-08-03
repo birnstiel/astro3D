@@ -1187,7 +1187,57 @@ def _convert_image(image, width, dx, dy, height=None, threshold=None, pal=None):
     return im
 
 
-def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=None, xg=None, yg=None, zg=None, n=None):
+def dither_brighten(img, value, use_alpha=True, bg=None):
+    """Brightens the image in a Floyd-Steinberg-way, so not fully random.
+
+    img: array | PIL.image
+        image that should be brightened. If array, colors should be using ints (0...255).
+
+    value: float
+        how much to brighten it. 0 means no brithening, 1 means fully white.
+
+    use_alpha: bool
+        if True, then the alpha channel is also used in the dithered-brightening
+        else it is discarded.
+
+    Returns:
+    --------
+    brigthened image as np.ndarray
+    """
+    if bg is not None and len(bg) != 3:
+        raise ValueError('bg color should be RGB, so integer array of length 3')
+
+    img = np.array(img)
+
+    if use_alpha and img.shape[-1] == 4:
+        # if alpha channel should be used (and exists)
+        alpha_mask = img[:, :, -1]
+    else:
+        # if it should not be used: make it just all intransparent
+        alpha_mask = 255 * np.ones(np.shape(img)[:2])
+
+    # keep the RGB part of the image
+    img = img[:, :, :3]
+
+    # multiply the brightening factor onto the mask
+    alpha_mask = ((1.0 - value) * alpha_mask).astype(np.uint8)
+
+    # we randomize a bit to not have the same mask every time
+    alpha_mask[0, 0] = np.random.randint(256)
+
+    # dither the mask to True/False
+    alpha_mask = np.array(Image.fromarray(alpha_mask).convert('1'))
+
+    # we put background color where the mask is False
+    if bg is None:
+        bg = np.array(3 * [255])
+    bg = np.array(bg).astype(np.uint8)
+    img = np.where(alpha_mask[:, :, None], img, bg)
+
+    return img
+
+
+def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=None, xg=None, yg=None, zg=None, n=None, alpha_method=False):
     """Create an image stack from a list of points
 
     Parameters
@@ -1212,11 +1262,17 @@ def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=Non
         z-grid of the image, will use uniform of lenght `n` by default
     n : int, optional
         if `xy, yg, zg` are not given, linear grids of shape `n` will be created, by default 500
+    alpha_method : bool, optional
+        if true, then all but the last weights will be normalized to a color while the last one will be treated as alpha value
+        default is False
 
     Returns
     -------
     np.ndarray
         The resulting image stack of shape `(len(xg), len(yg), len(zg), weights.shape[1])`.
+
+    if alpha_method is True, the image is of shape `(len(xg), len(yg), len(zg), weights.shape[1] - 1)`
+    and a second alpha array is returned of shape `(len(xg), len(yg), len(zg)`
     """
     if (n is None) and ((xg is None) or (yg is None) or (zg is None)):
         raise ValueError('if grids `xg, yg, zg` are not given, need to specify `n`!')
@@ -1235,9 +1291,10 @@ def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=Non
     if sigmas is None:
         sigmas = np.ones([len(xi), 1])
 
-    image = fmodule.point_cloud(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
-
-    return image
+    if alpha_method:
+        return fmodule.point_cloud_colored(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
+    else:
+        return fmodule.point_cloud(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
 
 
 class IStack(object):
