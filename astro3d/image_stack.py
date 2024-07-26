@@ -3,6 +3,7 @@ from itertools import repeat, cycle
 import imageio
 from colorsys import rgb_to_hsv
 from functools import lru_cache
+import os
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,7 +15,10 @@ from PIL import Image, ImageFont, ImageDraw
 
 from skimage.io import imread_collection
 
-from . import fmodule
+from ._fortran import fmodule
+
+# we need to increase the openMP stack size to prevent crashes
+os.environ['OMP_STACKSIZE'] = '256M'
 
 
 def rgb_to_cmyk(color):
@@ -197,7 +201,8 @@ def density2color(iz, z2, f_interp, coords, norm, path, levels=None, sigmas=None
 
     if levels is not None:
         # compute the different density contours (but exclude 0.0 which should never be colored)
-        dist_sq = (np.array(levels)[None, None, :] - layer_norm[..., None])**2 / (2 * sigmas**2)
+        dist_sq = (np.array(levels)[None, None, :] -
+                   layer_norm[..., None])**2 / (2 * sigmas**2)
         dist_sq[layer_norm == 0.0] = np.inf
         dist_sq[dist_sq > np.array(clip)**2] = np.inf
         color_density = 1. / (1 + dist_sq)
@@ -328,7 +333,8 @@ def add_streamlines(coords, z2, iz, layer_dithered, streamlines, radius=None):
     # clear other materials where the mask is true
     # and attach the streamlines as new material
     layer_dithered = np.where(mask[:, :, None], 0, layer_dithered)
-    layer_dithered = np.concatenate((layer_dithered, mask[:, :, None]), axis=-1)
+    layer_dithered = np.concatenate(
+        (layer_dithered, mask[:, :, None]), axis=-1)
 
     return layer_dithered
 
@@ -512,7 +518,8 @@ def makeslice(iz, z2, f_interp, coords, norm, path,
 
     # add streamlines
     if streamlines is not None:
-        layer_dithered = add_streamlines(coords, z2, iz, layer_dithered, streamlines, radius=radius)
+        layer_dithered = add_streamlines(
+            coords, z2, iz, layer_dithered, streamlines, radius=radius)
 
     im = layers2image(layer_dithered, path, iz, colors=colors, f=f, bg=bg)
 
@@ -618,7 +625,8 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
             Norm = LogNorm
             print('no norm given, using logarithmic norm ', end='')
         else:
-            raise ValueError('norm is not a valid input argument for normalization')
+            raise ValueError(
+                'norm is not a valid input argument for normalization')
 
         vmax = vmax or norm.vmax or 10**np.ceil(np.log10(data.max()))
         vmin = vmin or norm.vmin or 1e-2 * vmax
@@ -656,9 +664,11 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
     z2 = np.linspace(0, data.shape[2] - 1, n_z)
     coords = (x2, y2, z2)
 
-    print(f'original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
+    print(
+        f'original data: {data.shape[0]} x {data.shape[1]} x {data.shape[2]}')
     print(f'interpoation to: {n_x} x {n_y} x {n_z}')
-    print(f'print size: {n_x * 2.54 / dpi_x:.2f} x {n_y * 2.54 / dpi_y:.2f} x {n_z *2.54 / dpi_z:.2f} cm')
+    print(
+        f'print size: {n_x * 2.54 / dpi_x:.2f} x {n_y * 2.54 / dpi_y:.2f} x {n_z *2.54 / dpi_z:.2f} cm')
     print(f'saving into {output_dir}')
     path = Path(output_dir)
 
@@ -675,7 +685,8 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
 
     if iz is not None:
         z2 = z2[np.array(iz, ndmin=1)]
-        print(f'only printing {len(np.array(iz, ndmin=1)) * 2.54 / dpi_z:.2f} cm of it')
+        print(
+            f'only printing {len(np.array(iz, ndmin=1)) * 2.54 / dpi_z:.2f} cm of it')
 
     n = len(z2)
 
@@ -749,7 +760,8 @@ def check_colors(imgs, stride=5, nmax=8, sorting='luma'):
     if imgs.ndim == 3:
         imgs = imgs[:, :, None, :]
 
-    ncol, colors = fmodule.get_colors(imgs[:, :, ::stride, :].astype(int), nmax)
+    ncol, colors = fmodule.get_colors(
+        imgs[:, :, ::stride, :].astype(int), nmax)
 
     # this returns the numbers of colors and an array of length nmax
     # so we need to pick
@@ -760,7 +772,8 @@ def check_colors(imgs, stride=5, nmax=8, sorting='luma'):
         colors = colors[np.lexsort(np.fliplr(colors).T)][::-1, :]
     elif sorting == 'luma':
         # we sort them by luminosity, but in reverse, so white would be first
-        L = (0.212 * colors[:, 0] + 0.701 * colors[:, 1] + 0.087 * colors[:, 2])
+        L = (0.212 * colors[:, 0] + 0.701 *
+             colors[:, 1] + 0.087 * colors[:, 2])
         colors = colors[np.argsort(L)[::-1], :]
 
     return colors
@@ -789,7 +802,8 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
     fs = np.array(f, ndmin=1)
 
     assert abs(sum(fs)) - 1 < 1e-8, 'the f factors need to sum to 1.'
-    assert np.min(fs) >= 0 and np.max(fs) <= 1.0, 'f factors need to be between 0 and 1 (including)'
+    assert np.min(fs) >= 0 and np.max(
+        fs) <= 1.0, 'f factors need to be between 0 and 1 (including)'
 
     if not inplace:
         im = np.zeros([im.shape[0], im.shape[1], len(repl_cols[0])])
@@ -803,7 +817,8 @@ def color_replace(im, orig_color, repl_col, f=[1], inplace=False):
 
     if n_col == 1:
         # if there is just one color, we can directly replace that
-        im_repl = np.where(color_mask[:, :, None], repl_cols[0, None, None], im)
+        im_repl = np.where(color_mask[:, :, None],
+                           repl_cols[0, None, None], im)
     else:
         # if a color is to be replaced by a mix of multiple colors,
         # then we do this randomly.
@@ -851,12 +866,15 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     if levels is not None:
         if colors is None:
             # get default colors
-            mix = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()['color'][:len(levels)]])
+            mix = np.array([to_rgb(c) for c in plt.rcParams['axes.prop_cycle'].by_key()[
+                           'color'][:len(levels)]])
         else:
             # mix colors
             if f is None:
-                f = [list(np.ones(np.array(col, ndmin=2).shape[0]) / np.array(col, ndmin=2).shape[0]) for col in colors]
-            mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0) for c, _f in zip(colors, f)]
+                f = [list(np.ones(np.array(col, ndmin=2).shape[0]) /
+                          np.array(col, ndmin=2).shape[0]) for col in colors]
+            mix = [(np.array(c, ndmin=2) * np.array(_f, ndmin=2).T).sum(0)
+                   for c, _f in zip(colors, f)]
 
     fig, ax = plt.subplots(dpi=150)
 
@@ -893,7 +911,8 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
 
         # estimate the filling factor
         dn = np.array(norm(data.ravel())).reshape(data.shape)
-        dist_sq = (np.array(levels)[None, None, :] - dn[..., None])**2 / (2 * sigmas**2)
+        dist_sq = (np.array(levels)[None, None, :] -
+                   dn[..., None])**2 / (2 * sigmas**2)
         dist_sq[dn == 0.0] = np.inf
         dist_sq[dist_sq > np.array(clips)**2] = np.inf
         color_density = 1. / (1 + dist_sq) * fill
@@ -907,13 +926,15 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
     if type(norm).__name__ in ['Normalize', 'AsinhNorm']:
         ticks = np.array(norm.inverse([0, 1]))
     elif type(norm).__name__ == 'LogNorm':
-        ticks = 10.**np.arange(*np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
+        ticks = 10.**np.arange(*
+                               np.round(np.log10(np.array(norm.inverse([0, 1])))) + [0, 1])
         ax2.get_xaxis().set_major_locator(ticker.LogLocator())
         ax2.get_xaxis().set_ticks(ticks)
     else:
         raise ValueError('unknown norm type given')
 
-    ax.text(0.05, 0.95, f'approximate filling factor = {ff:.2%}', va='top', transform=ax.transAxes)
+    ax.text(
+        0.05, 0.95, f'approximate filling factor = {ff:.2%}', va='top', transform=ax.transAxes)
 
 
 def rkstep(x, y, z, vel, p, ds):
@@ -947,7 +968,8 @@ def rkstep(x, y, z, vel, p, ds):
 
     dt = ds / v
 
-    pdot1 = interpn((x, y, z), vel, p + dt / 2.0 * pdot0, bounds_error=False, fill_value=0.0)[0]
+    pdot1 = interpn((x, y, z), vel, p + dt / 2.0 * pdot0,
+                    bounds_error=False, fill_value=0.0)[0]
 
     v = np.sqrt(sum(pdot1**2))
     if (v == 0.0):
@@ -1205,7 +1227,8 @@ def dither_brighten(img, value, use_alpha=True, bg=None):
     brigthened image as np.ndarray
     """
     if bg is not None and len(bg) != 3:
-        raise ValueError('bg color should be RGB, so integer array of length 3')
+        raise ValueError(
+            'bg color should be RGB, so integer array of length 3')
 
     img = np.array(img)
 
@@ -1275,7 +1298,8 @@ def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=Non
     and a second alpha array is returned of shape `(len(xg), len(yg), len(zg)`
     """
     if (n is None) and ((xg is None) or (yg is None) or (zg is None)):
-        raise ValueError('if grids `xg, yg, zg` are not given, need to specify `n`!')
+        raise ValueError(
+            'if grids `xg, yg, zg` are not given, need to specify `n`!')
 
     n = n or 500
     if xg is None:
@@ -1291,10 +1315,17 @@ def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=Non
     if sigmas is None:
         sigmas = np.ones([len(xi), 1])
 
-    if alpha_method:
-        return fmodule.point_cloud_colored(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
+    nweights = weights.shape[1]
+    if nweights == 1:
+        ncol = 1
     else:
-        return fmodule.point_cloud(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, ncol=weights.shape[1])
+        ncol = nweights - 1
+    if alpha_method:
+        fmodule.point_cloud_colored(
+            xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, nweights=nweights, ncol=ncol)
+        return fmodule.module_image, fmodule.module_alpha
+    else:
+        return fmodule.point_cloud(xg, yg, zg, xi, yi, zi, sigmas, n_sigma, weights=weights, nweights=nweights, ncol=ncol)
 
 
 class IStack(object):
@@ -1349,10 +1380,12 @@ class IStack(object):
             self.imgs = self._imgs.transpose(2, 1, 0, 3)[:, ::-1, ...]
         elif isinstance(input, list) and len(input) == 3:
             # make a box of the size of the input lengths
-            nx, ny, nz = (np.array(input) / 2.54 * [self.dpi_x, self.dpi_y, self.dpi_z]).astype(int)
+            nx, ny, nz = (np.array(input) / 2.54 *
+                          [self.dpi_x, self.dpi_y, self.dpi_z]).astype(int)
             self.imgs = np.zeros([nx, ny, nz, 3], dtype=np.uint8)
         else:
-            raise ValueError('input has to be directory or numpy ndarray or size array')
+            raise ValueError(
+                'input has to be directory or numpy ndarray or size array')
 
         # we make it unwritable so that it can only changed via the property, or
         # within functions, where we need to call the update() function to reset
@@ -1466,13 +1499,15 @@ class IStack(object):
         f = plt.figure(figsize=(len(self.colors), 1))
         ax = f.add_axes([0, 0, 1, 1])
         ax.imshow([self.colors])
-        ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+        ax.tick_params(left=False, bottom=False,
+                       labelleft=False, labelbottom=False)
 
         if 'ha' not in kwargs or 'horizontalalignment' not in kwargs:
             kwargs['ha'] = 'center'
 
         if 'color' not in kwargs or 'c' not in kwargs:
-            tcolors = [str(round(1 - rgb_to_hsv(*col)[-1] / 255)) for col in self.colors]
+            tcolors = [str(round(1 - rgb_to_hsv(*col)[-1] / 255))
+                       for col in self.colors]
         else:
             tcolors = kwargs.pop('color', kwargs.pop('c', None))
 
@@ -1490,7 +1525,8 @@ class IStack(object):
         # make it writable briefly
         # but here we update the colors manually to save time
         self._imgs.flags.writeable = True
-        self.imgs = np.where(mask[:, :, :, None], new_col[None, None, None, :], self.imgs)
+        self.imgs = np.where(mask[:, :, :, None],
+                             new_col[None, None, None, :], self.imgs)
         self._imgs.flags.writeable = False
         self.reset()
 
@@ -1511,7 +1547,8 @@ class IStack(object):
             the mixing ratios of the colors, should add to 1, by default [1]
         """
         if len(f) != len(repl_colors):
-            raise ValueError('Each new color needs a relative abundance given in `f`.')
+            raise ValueError(
+                'Each new color needs a relative abundance given in `f`.')
 
         for iz in range(self.nz):
             self._imgs.flags.writeable = True
@@ -1542,7 +1579,8 @@ class IStack(object):
         rest = self._get_nonempty(empty_indices)
 
         f, ax = plt.subplots()
-        _ = ax.hist(self.counts[:, :, rest].ravel(), bins=np.linspace(0, 20, 21) - 0.5)
+        _ = ax.hist(self.counts[:, :, rest].ravel(),
+                    bins=np.linspace(0, 20, 21) - 0.5)
         ax.set_yscale('log')
         ax.set_xlim(right=20)
         return f, ax
@@ -1567,7 +1605,8 @@ class IStack(object):
 
         n_columns = self.ncol - len(empty_indices)
 
-        f, ax = plt.subplots(2, n_columns, figsize=(5 * n_columns, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
+        f, ax = plt.subplots(2, n_columns, figsize=(
+            5 * n_columns, 5), gridspec_kw={'height_ratios': [1, 20]}, dpi=150)
 
         ax = np.array(ax, ndmin=2)
         if n_columns == 1:
@@ -1592,7 +1631,8 @@ class IStack(object):
             cmap = LinearSegmentedColormap.from_list('my', [bg, col])
 
             # plotting
-            cc = ax[1, i_column].imshow(self.counts[:, :, ic].T, vmin=0, vmax=vmax, origin='lower', cmap=cmap)
+            cc = ax[1, i_column].imshow(
+                self.counts[:, :, ic].T, vmin=0, vmax=vmax, origin='lower', cmap=cmap)
             ax[1, i_column].set_aspect(self.dpi_x / self.dpi_y)
             f.colorbar(cc, cax=ax[0, i_column], orientation='horizontal')
 
@@ -1620,12 +1660,16 @@ class IStack(object):
 
         print(f'{self.nz} files')
         print(f'dimension = {dim[0]:.2f} x {dim[1]:.2f} x {dim[2]:.2f} cm')
-        print(f'filling fraction: {1 - self.counts[:, :, empty_indices].sum() / (self.nx * self.ny * self.nz):.2%}')
+        print(
+            f'filling fraction: {1 - self.counts[:, :, empty_indices].sum() / (self.nx * self.ny * self.nz):.2%}')
 
-        print(f'nr of fully transparent columns: {(self.counts[:, :, rest].sum(-1) == 0).sum() / (self.nx * self.ny * self.nz):.2%}')
-        print(f'most opaque pixel has {self.counts[:, :, rest].sum(-1).max():n} filled pixels (={self.counts[:, :, rest].sum(-1).max() / self.nz:.2%} of all layers are filled)')
+        print(
+            f'nr of fully transparent columns: {(self.counts[:, :, rest].sum(-1) == 0).sum() / (self.nx * self.ny * self.nz):.2%}')
+        print(
+            f'most opaque pixel has {self.counts[:, :, rest].sum(-1).max():n} filled pixels (={self.counts[:, :, rest].sum(-1).max() / self.nz:.2%} of all layers are filled)')
 
-        print('mean counts in non-transparent columns: ' + ', '.join([f'{np.mean(self.counts[:, :, i][self.counts[:,:,i]!=0]):.2g}' for i in range(self.ncol)]))
+        print('mean counts in non-transparent columns: ' + ', '.join(
+            [f'{np.mean(self.counts[:, :, i][self.counts[:,:,i]!=0]):.2g}' for i in range(self.ncol)]))
 
     def show_transparency_estimate(self, empty_indices=None):
         "shows a map of the estimated projected transparency"
@@ -1633,7 +1677,8 @@ class IStack(object):
         empty_indices = empty_indices or self.empty_indices
         rest = self._get_nonempty(empty_indices)
 
-        f, axs = plt.subplots(1, 3, figsize=(11, 3), dpi=100, tight_layout=True)
+        f, axs = plt.subplots(1, 3, figsize=(
+            11, 3), dpi=100, tight_layout=True)
 
         opts = dict(cmap='gray', origin='lower')
         summed_image = self.counts[:, :, rest].sum(-1)
@@ -1649,7 +1694,8 @@ class IStack(object):
         plt.colorbar(i, ax=ax).set_label('# of opaque pixes along LOS')
 
         ax = axs[-1]
-        counts, bins, patches = ax.hist(summed_image.ravel(), bins=np.arange(summed_image.max()))
+        counts, bins, patches = ax.hist(
+            summed_image.ravel(), bins=np.arange(summed_image.max()))
         ax.set_yscale('log')
         ax.set_xlabel('number of filled voxels in column')
         ax.set_xlabel('count')
@@ -1698,7 +1744,8 @@ class IStack(object):
         x = [0, data.shape[0]]
         y = [0, data.shape[1]]
 
-        aspect = getattr(self, f'dpi_{view[0]}') / getattr(self, f'dpi_{view[1]}')
+        aspect = getattr(self, f'dpi_{view[0]}') / \
+            getattr(self, f'dpi_{view[1]}')
 
         # note, the forward integration is the ray to observer
         # so in xy, backward=False is the view from top.
@@ -1713,7 +1760,8 @@ class IStack(object):
             i1 = 1
             step = -1
 
-        image = fmodule.compute_view(data, i0, i1, step, n_tauone, self.colors[self.empty_indices], bg=bg)
+        image = fmodule.compute_view(
+            data, i0, i1, step, n_tauone, self.colors[self.empty_indices], bg=bg)
 
         if view == 'xy':
             if not backward:
@@ -1760,14 +1808,16 @@ class IStack(object):
 
         bg = tuple((np.ones(3) * bg).astype(int))
 
-        image, extent, aspect = self._get_view(n_tauone=n_tauone, bg=bg, view=view, backward=backward)
+        image, extent, aspect = self._get_view(
+            n_tauone=n_tauone, bg=bg, view=view, backward=backward)
 
         if ax is None:
             f, ax = plt.subplots()
         else:
             f = ax.figure
 
-        ax.imshow(image.transpose(1, 0, 2).astype(int), extent=extent, origin='lower')
+        ax.imshow(image.transpose(1, 0, 2).astype(
+            int), extent=extent, origin='lower')
         ax.set_aspect(aspect)
         ax.set_xlabel(view[0] + '-axis')
         ax.set_ylabel(view[1] + '-axis')
@@ -1780,8 +1830,10 @@ class IStack(object):
 
         for ix, backward in enumerate([True, False]):
             for iy, view in enumerate(['xy', 'xz', 'yz']):
-                image, extent, aspect = self._get_view(view=view, backward=backward)
-                ax[iy, ix].imshow(image.transpose(1, 0, 2).astype(int), extent=extent, origin='lower')
+                image, extent, aspect = self._get_view(
+                    view=view, backward=backward)
+                ax[iy, ix].imshow(image.transpose(1, 0, 2).astype(
+                    int), extent=extent, origin='lower')
                 ax[iy, ix].set_aspect(aspect)
                 ax[iy, ix].set_title(f'backward = {backward}')
                 ax[iy, 0].set_xlabel(view[0])
@@ -1796,23 +1848,27 @@ class IStack(object):
         f = plt.figure(figsize=(6, 6))
         gs = gridspec.GridSpec(
             2, 2,
-            width_ratios=[1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[1] / self.dpi_y)],
+            width_ratios=[1, self.imgs.shape[2] /
+                          self.dpi_z / (self.imgs.shape[1] / self.dpi_y)],
             height_ratios=[1, self.imgs.shape[2] / self.dpi_z / (self.imgs.shape[0] / self.dpi_x)])
         gs.update(wspace=0.0, hspace=0.0)
 
         ax1 = plt.subplot(gs[0, 0])
         self.show_view(bg=bg, view='xy', ax=ax1, backward=True)
         ax1.set_xticks([])
-        ax1.text(0.02, 0.99, 'top', color='red', ha='left', va='top', transform=ax1.transAxes)
+        ax1.text(0.02, 0.99, 'top', color='red', ha='left',
+                 va='top', transform=ax1.transAxes)
 
         ax3 = plt.subplot(gs[1, 0])
         self.show_view(bg=bg, view='xz', ax=ax3)
-        ax3.text(0.02, 0.99, 'front', color='red', ha='left', va='top', transform=ax3.transAxes)
+        ax3.text(0.02, 0.99, 'front', color='red', ha='left',
+                 va='top', transform=ax3.transAxes)
 
         # special treatment to rotate right figure
         ax2 = plt.subplot(gs[0, 1])
         image, extent, aspect = self._get_view(bg=bg, view='yz', backward=True)
-        ax2.imshow(image[:, ::-1].astype(int), extent=np.array(extent)[[3, 2, 0, 1]], origin='lower')
+        ax2.imshow(image[:, ::-1].astype(int),
+                   extent=np.array(extent)[[3, 2, 0, 1]], origin='lower')
         ax2.set_aspect(1 / aspect)
         ax2.set_xlabel('z-axis')
         ax2.set_ylabel('y-axis')
@@ -1820,7 +1876,8 @@ class IStack(object):
         ax2.xaxis.tick_top()
         ax2.yaxis.set_label_position('right')
         ax2.yaxis.tick_right()
-        ax2.text(0.02, 0.99, 'right', color='red', ha='left', va='top', transform=ax2.transAxes)
+        ax2.text(0.02, 0.99, 'right', color='red', ha='left',
+                 va='top', transform=ax2.transAxes)
 
         return f, [ax1, ax2, ax3]
 
@@ -1931,7 +1988,8 @@ class IStack(object):
             alpha_mask = alpha_mask[:, None, :, None]
 
         if any(p0 + im_size > self.imgs.shape[:-1]):
-            raise ValueError(f'image block of size {im_size} put at {p0} exceeds stack size {self.imgs.shape[:-1]}')
+            raise ValueError(
+                f'image block of size {im_size} put at {p0} exceeds stack size {self.imgs.shape[:-1]}')
 
         self._imgs.flags.writeable = True
 
@@ -1972,8 +2030,10 @@ class IStack(object):
         if color.ndim != 1 and len(color) != 3:
             raise ValueError('color needs to have 3 entries.')
 
-        zmin = min([np.array(streamline[:, 2]).min() for streamline in streamlines]) - radius
-        zmax = max([np.array(streamline[:, 2]).max() for streamline in streamlines]) + radius
+        zmin = min([np.array(streamline[:, 2]).min()
+                   for streamline in streamlines]) - radius
+        zmax = max([np.array(streamline[:, 2]).max()
+                   for streamline in streamlines]) + radius
 
         # make image stack writeable
         self._imgs.flags.writeable = True
@@ -1984,9 +2044,11 @@ class IStack(object):
 
                 mask = np.zeros([len(x), len(y)], dtype=bool)
                 for line in streamlines:
-                    mask = mask | fmodule.mark_streamline(x, y, z[iz], radius, line)
+                    mask = mask | fmodule.mark_streamline(
+                        x, y, z[iz], radius, line)
 
-                self.imgs[:, :, iz, :] = np.where(mask[:, :, None], color[None, None, :], self.imgs[:, :, iz, :])
+                self.imgs[:, :, iz, :] = np.where(
+                    mask[:, :, None], color[None, None, :], self.imgs[:, :, iz, :])
         finally:
             self._imgs.flags.writeable = False
 
@@ -2049,7 +2111,8 @@ class IStack(object):
             color of the box, by default [255, 0, 0]
         """
         length = length * np.ones(3)
-        path = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]])
+        path = np.array(
+            [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 0]])
         vert = np.array([[0, 0, 0], [0, 0, 0.5], [0, 0, 1]])
         box = [
             path,
@@ -2088,7 +2151,8 @@ class IStack(object):
             self._x[ix - nx:ix + nx + 1],
             self._y[iy - ny:iy + ny + 1],
             self._z[iz - nz:iz + nz + 1], indexing='ij')
-        mask = ((x - pos[0])**2 + (y - pos[1])**2 + (z - pos[2])**2) < radius**2
+        mask = ((x - pos[0])**2 + (y - pos[1]) **
+                2 + (z - pos[2])**2) < radius**2
 
         color = np.array(color, ndmin=1)
 
@@ -2098,7 +2162,8 @@ class IStack(object):
                 ix - nx:ix + nx + 1,
                 iy - ny:iy + ny + 1,
                 iz - nz:iz + nz + 1, :]
-            res = np.where(mask[:, :, :, None], color[None, None, None, :], slice)
+            res = np.where(mask[:, :, :, None],
+                           color[None, None, None, :], slice)
             slice[...] = res
         finally:
             self._imgs.flags.writeable = False
@@ -2139,7 +2204,8 @@ class IStack(object):
             can also be a color specification like `[128, 128, 128]`.
 
         """
-        img = _get_text_image(text, size=size, family=family, weight=weight, bg=255)
+        img = _get_text_image(
+            text, size=size, family=family, weight=weight, bg=255)
 
         pal = [col, (bg * np.ones(3)).astype(np.uint8)]
 
@@ -2157,7 +2223,8 @@ class IStack(object):
             path to store image. Filename will be like `slice_0001.png`, by default '.'
         """
         path = Path(path)
-        imageio.imwrite(path / f'slice_{i:04d}.png', np.uint8(self.imgs[:, ::-1, i, :].transpose(1, 0, 2)))
+        imageio.imwrite(
+            path / f'slice_{i:04d}.png', np.uint8(self.imgs[:, ::-1, i, :].transpose(1, 0, 2)))
 
     def save_images(self, path, i0=None, i1=None):
         """save all images between `i0` and `i1` to the directory `path`.
@@ -2188,7 +2255,8 @@ class IStack(object):
         i1 = i1 or self.nz - 1
 
         if (i0 != 0) or (i1 != self.nz - 1):
-            print(f'only printing from index {i0} to {i1} = {(i1 - i0) * 2.54 / self.dpi_z:.2f} cm of it')
+            print(
+                f'only printing from index {i0} to {i1} = {(i1 - i0) * 2.54 / self.dpi_z:.2f} cm of it')
 
         indices = np.arange(i0, i1 + 1)
 

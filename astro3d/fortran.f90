@@ -5,6 +5,10 @@ module fmodule
     DOUBLE PRECISION :: fill_value=0d0
     INTEGER :: numthreads = -1
 
+    !double precision, allocatable :: module_alpha(:, :, :)
+    !integer, allocatable :: module_image(:, :, :, :)
+    !double precision, allocatable :: temp_image(:, :, :)
+
     contains
 
 
@@ -20,62 +24,6 @@ subroutine set_threads()
 end subroutine set_threads
 
 
-subroutine render(image, data, x0, sigma, colors, bg, nx, ny, nz, N)
-    implicit none
-    INTEGER, INTENT(IN) :: nx, ny, nz, N
-    DOUBLE PRECISION, INTENT(IN) :: bg
-    !f2py DOUBLE PRECISION OPTIONAL, INTENT(IN) :: bg = 0.0
-    DOUBLE PRECISION, intent(out) :: image(nx, ny, 4)
-    DOUBLE PRECISION, intent(in) :: data(nx, ny, nz)
-    DOUBLE PRECISION, intent(in), DIMENSION(N) :: x0, sigma
-    DOUBLE PRECISION, intent(in), DIMENSION(N, 4) :: colors
-    DOUBLE PRECISION, DIMENSION(nx, ny) :: slice
-    DOUBLE PRECISION, DIMENSION(nx, ny, 4) :: rgba
-    integer :: i
-
-    image = bg
-
-    do i = 1, nz
-        slice = data(:, :, i)
-        call transferfunction(slice, x0, sigma, colors, nx, ny, n, rgba)
-        image(:, :, 1) = rgba(:, :, 4) * rgba(:, :, 1) + (1 - rgba(:, :, 4)) * image(:, :, 1)
-        image(:, :, 2) = rgba(:, :, 4) * rgba(:, :, 2) + (1 - rgba(:, :, 4)) * image(:, :, 2)
-        image(:, :, 3) = rgba(:, :, 4) * rgba(:, :, 3) + (1 - rgba(:, :, 4)) * image(:, :, 3)
-        image(:, :, 4) = image(:, :, 4) + rgba(:, :, 4)
-    end do
-end subroutine render
-
-
-subroutine transferfunction(x, x0, sigma, colors, nx, ny, n, rgba)
-    implicit none
-
-    INTEGER, INTENT(IN) :: nx, ny, n
-    DOUBLE PRECISION, intent(in) :: x(nx, ny)
-    DOUBLE PRECISION, intent(in), DIMENSION(n) :: x0, sigma
-    DOUBLE PRECISION, intent(in), DIMENSION(n, 4) :: colors
-    DOUBLE PRECISION, intent(out), DIMENSION(nx, ny, 4) ::  rgba
-    DOUBLE PRECISION, DIMENSION(n) :: dum
-    integer :: ix, iy, ic
-    
-    ! update the number of threads
-    call set_threads()
-    
-    !vals = colors[..., :, :] * A[..., :, None] * np.exp(-(x[..., None, None] - x0[..., :, None])**2 / (2 * sigma[..., :, None]**2))
-    ! all the "SPREAD"s do a broadcasting like np.newaxis in numpy to make the arrays of shape (nx, ny, n, 4)
-    !$OMP PARALLEL num_threads(numthreads) PRIVATE(dum) SHARED(rgba)
-    !$OMP DO
-    do ix = 1, nx
-        do iy = 1, ny
-            dum = exp(-(x(ix, iy) - x0) * (x(ix, iy) - x0) / (2 * sigma * sigma))
-            do ic = 1, 4
-                rgba(ix, iy, ic) = SUM(colors(:, ic) * dum)
-            end do
-        end do
-    end do
-    !$OMP END DO
-    !$OMP END PARALLEL
-	
-end subroutine transferfunction
 
 ! FLOYD-STEINBERG DITHERING
 !
@@ -468,108 +416,6 @@ subroutine compute_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, n
 end subroutine compute_view
 
 
-! this routines takes a 3D image stack (nx, ny, nz, nc). Here, nc is the number
-! of integers that describe a color, so 3 for RGB, 4 for RGBA. This routine determines
-! the unique colors within the stack.
-!
-! This function is just a wrapper to get_colors_batched, due to the limitation of f2py
-! of not being able to use allocatable arrays. Therefore we need to compute
-! the array sizes and pass all those to `get_colors_batched`.
-!
-! stack:
-!     the 3D image stack of shape (nx, ny, nz, nc) where nc = 3 or 4 for RGB or RGBA
-! nx, ny, nz, nc:
-!     determine the shape of the image stack
-! nout:
-!     how many colours could be in the output. This should be less than 8 as we have no more printing channels
-! output:
-!     the returned colors that were found, up to nout of them
-! nresults:
-!     how many colors are *actually* returned. the array output would have space for more
-subroutine get_colors(stack, nx, ny, nz, nc, nout, nresults, output)
-    implicit none
-    integer, intent(in) :: nc, nx, ny, nz, nout
-    integer, intent(in) :: stack(nx, ny, nz, nc)
-    integer, intent(out) :: output(nout, nc), nresults
-    
-    integer :: batchsize = 10!1000000
-    integer :: nr, n_steps, n_all
-
-    nr = nx * ny * nz
-    n_steps = max(nr / batchsize, 1)
-    n_all = nout * n_steps
-
-    call get_colors_batched(stack, nx, ny, nz, nc, nr, batchsize, n_steps, n_all, nout, output, nresults)
-
-end subroutine get_colors
-
-! this routines takes an image stack (nx, ny, nz, 3 or 4) and determines the unique colors
-! due to the limitation of f2py of not being able to use allocatable arrays, we need to use a 
-! wrapper that computes the array sizes and passes all those to this function
-! this wrapper is `get_colors`.
-! stack:
-!     the 3D image stack of shape (nx, ny, nz, nc) where nc = 3 or 4 for RGB or RGBA
-! nx, ny, nz, nc:
-!     determine the shape of the image stack
-! nr: 
-!     numbers of rows in the flattened stack, that is (nx*ny*nz, nc)
-! batchsize:
-!     how many colors are in one batch
-! n_steps:
-!   full stack is broken up into n_steps batches, so this is n_steps = max(nr / batchsize, 1)
-! n_all: 
-!   how large the results from all batches are. Each result is up to "nout", so
-!   n_all = nout * n_steps
-! nout:
-!     how many colours could be in the output. This should be less than 8 as we have no more printing channels
-! output:
-!     the returned colors that were found, up to nout of them
-! nresults:
-!     how many colors are *actually* returned. the array output would have space for more
-subroutine get_colors_batched(stack, nx, ny, nz, nc, nr, batchsize, n_steps, n_all, nout, output, nresults)
-    implicit none
-    integer, intent(in) :: nr, n_steps, nc, nx, ny, nz, nout, n_all, batchsize
-    integer, intent(in) :: stack(nx, ny, nz, nc)
-    integer, intent(out) :: output(nout, nc), nresults
-    integer :: flatstack(nr, nc), results(nout, nc)
-    integer :: allresults(n_all, nc)
-    
-    integer :: ir, ix, iy, iz, i_step, i_start, i_end, icol
-
-    ! flatten data
-
-    do iz = 1, nz
-        do iy = 1, ny
-            do ix = 1, nx
-                ir = (iz - 1) * nx * ny + (iy - 1) * nx + ix
-                flatstack(ir, :) = stack(ix, iy, iz, :)
-            enddo
-        enddo
-    enddo
-    
-    ! now we break it up into batches
-    nresults = 0
-
-    ! we get the results for each batch and store them in allresults
-    do i_step = 1, n_steps
-        
-        i_start = (i_step - 1) * batchsize + 1
-        i_end = i_step * batchsize
-        if (i_step == n_steps) i_end = nr
-
-        call get_colors_1D(flatstack(i_start:i_end, :), icol, i_end - i_start + 1, nc, nout, results)
-        
-        allresults(nresults+1:nresults+icol, :) = results(1:icol, :)
-        nresults = nresults + icol
-
-    enddo
-
-    ! and call the method on the results of the batches
-    icol = nresults
-    call get_colors_1D(allresults(1:nresults, :), nresults, icol, nc, nout, output)
-
-end subroutine get_colors_batched
-
 
 subroutine get_colors_1D(stack, icol, nr_in, nc, nout, cols)
     implicit none
@@ -702,26 +548,52 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
 end subroutine point_cloud
 
 
-subroutine point_cloud_colored(xg, yg, zg, xi, yi, zi, sigma, image, alpha, weights, n_sigma, nx, ny, nz, np, ncol)
+
+subroutine point_cloud_colored_slice(slice, alpha, alpha_mean, xg, yg, z, xi, yi, zi, sigma, weights, &
+    &n_sigma, nx, ny, np, nweights, ncol)
+    ! computes a slingle slice at height z within the grid xg, yg.
     implicit none
-    integer, intent(in) :: nx, ny, nz, np, n_sigma, ncol
-    double precision, intent(in) :: xg(nx), yg(ny), zg(nz)
-    integer, intent(out) :: image(nx, ny, nz, ncol-1)
-    double precision, intent(out) :: alpha(nx, ny, nz)
+    integer, intent(in) :: nx, ny, np, n_sigma, nweights, ncol
+
+    ! the x, y, and z grid. Image will be computed on x-y-plane.
+    double precision, intent(in) :: xg(nx), yg(ny), z
+
+    ! the following sets default values for f2py
     !f2py integer :: ncol = 1
-    !f2py double precision optional, intent(in) :: weights(np, ncol) = 1.0
-    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np), weights(np, ncol)
+    !f2py double precision optional, intent(in) :: weights(np, nweights) = 1.0
+
+    ! for each of the `np` points, there is x, y, z positions, the size `sigma`
+    ! and the `nweights` number of weights to assign colors or alpha
+    double precision, intent(in) :: xi(np), yi(np), zi(np), sigma(np)
+    double precision, intent(in) :: weights(np, nweights)
     
-    double precision :: temp_image(nx, ny, ncol), temp_max(nx, ny)
-    double precision, parameter :: PI=4.D0 * DATAN(1.D0)
+    ! this will be the output
+    integer, intent(out) :: slice(nx, ny, ncol)
+    double precision, intent(out) :: alpha(nx, ny)
+    double precision, intent(out) :: alpha_mean
+    
+    ! for normalizing each pixel to a color, we use temp_max
+    double precision :: temp_max(nx, ny)
+    double precision :: temp_slice(nx, ny, nweights)
+
+    ! some constants
+    double precision, parameter :: PI=4.0 * DATAN(1D0)
     double precision, parameter :: fact = 1 / (sqrt(2 * PI)) ! denominator of the gaussian
 
-    integer :: ix, iy, iz, istar, ix0, iy0, ix1, iy1, tick, icol
+    ! all the counters and indices
+    integer :: ix, iy, istar, ix0, iy0, ix1, iy1, icol
 
-    double precision :: lower_bound(np), upper_bound(np), perc_progress
+    ! the mask will be set to either include the last color (if it is like a regular color)
+    ! or wheter it will normalize all colors, except the last one (in case its an alpha transparency)
+    logical :: mask(nx, ny, nweights)
 
-    character*1 creturn
-    creturn = achar(13)  !  generate carriage return
+    ! these show how far down and up a point can influence a slice
+    double precision :: lower_bound(np), upper_bound(np)
+
+    if ((ncol.ne.nweights).and.(ncol.ne.nweights-1)) then
+        stop 'weights and colors must have same length (=all are colors) or\n&
+            &len(weights) == len(colors)+1 (=last weight is treated as alpha)'
+    endif
 
     ! assure number of threads is up to date
     call set_threads()
@@ -729,72 +601,166 @@ subroutine point_cloud_colored(xg, yg, zg, xi, yi, zi, sigma, image, alpha, weig
     lower_bound = zi - n_sigma * sigma
     upper_bound = zi + n_sigma * sigma
 
-    image = 0
-    alpha = 0.0
+    temp_slice = 0.0
 
-    ! loop through slices: since each thread fills one slice, we can have the image array be shared (no overwriting)
-    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, iz, istar, ix0, ix1, iy0, iy1, icol, temp_image, temp_max) &
-    !$OMP SHARED(image, alpha, tick)
-    tick = 0
-    !$ if (omp_get_thread_num()==0) write(*, '(A, I3)') 'number of threads', omp_get_num_threads()
+    ! we set the mask such that the last entry (alpha) is ignored (unless all should be color-like)
+    mask = .true.
+    if (nweights .eq. ncol + 1) mask(:, :, nweights) = .false.
+
+    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, istar, ix0, ix1, iy0, iy1, icol) &
+    !$OMP SHARED(lower_bound, upper_bound, sigma, weights, temp_slice, xg, yg, z, xi, yi, zi)
     !$OMP DO SCHEDULE(STATIC)
-    DO iz = 1, nz
+    ! find the lowest and highest indices of stars that may contribute
+    ! note: this might actually include stars outside of their n_sigma
+    ! contribution range
+    do istar = 1, np
+        if ((lower_bound(istar) .gt. z) .or. (upper_bound(istar) .lt. z)) then
+            cycle
+        endif
+    
+        ! find the bounds around the star where we might add density
+        call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
+        call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
+        call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
+        call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
 
-        temp_image = 0.0
-
-        ! find the lowest and highest indices of stars that may contribute
-        ! note: this might actually include stars outside of their n_sigma
-        ! contribution range
-        do istar = 1, np
-            if (.not.( (lower_bound(istar) .le. zg(iz)) .and. (upper_bound(istar) .ge. zg(iz)) )) then
-                cycle
-            endif
-        
-            ! find the bounds around the star where we might add density
-            call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
-            call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
-            call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
-            call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
-
-            ix0 = max(ix0, 1)
-            ix1 = min(ix1, nx)
-            iy0 = max(iy0, 1)
-            iy1 = min(iy1, ny)
-                
-            DO iy=iy0, iy1
-                DO ix=ix0, ix1
-                    temp_image(ix, iy, :) = temp_image(ix, iy, :) + weights(istar, :) * &
-                        & exp(- ( & 
-                            (xg(ix) - xi(istar))**2  + &
-                            (yg(iy) - yi(istar))**2  + &
-                            (zg(iz) - zi(istar))**2  &
-                        ) / (2 * sigma(istar)**2)) * fact / sigma(istar)
-                END DO
+        ix0 = max(ix0, 1)
+        ix1 = min(ix1, nx)
+        iy0 = max(iy0, 1)
+        iy1 = min(iy1, ny)
+            
+        DO iy=iy0, iy1
+            DO ix=ix0, ix1
+                !OMP ATOMIC
+                temp_slice(ix, iy, :) = temp_slice(ix, iy, :) + weights(istar, :) * &
+                    & exp(- ( & 
+                        (xg(ix) - xi(istar))**2  + &
+                        (yg(iy) - yi(istar))**2  + &
+                        (z      - zi(istar))**2  &
+                    ) / (2 * sigma(istar)**2)) * fact / sigma(istar)
             END DO
         END DO
-
-        ! we assign all values apart from the last like colors, so they get normalized to [0 ... 255]
-        ! alpha is just kept a float
-        temp_max = MAXVAL(temp_image, 3)
-        DO icol = 1, ncol - 1
-            image(:, :, iz, icol) = INT(255 * temp_image(:, :, icol) / temp_max)
-        END DO
-        alpha(:, :, iz) = temp_image(:, :, ncol)
-
-        !progress bar
-        tick = tick + 1
-        perc_progress = (tick-1.0) / (nz - 1.0) * 100
-        if (mod(tick, 10) .eq. 0) then
-            write(*, "(A, F6.2, A)", ADVANCE='NO') creturn, perc_progress, '% complete'
-            call flush(6)
-        endif
-
     END DO
     !$OMP END  DO
     !$OMP END PARALLEL
-    write(*, '(A,A)') creturn, '100.00% complete'
-    !close(6)
-end subroutine point_cloud_colored
+
+    ! we normalize all `ncol` entries (i.e. not the last if ncol == nweights-1)
+    ! of each cell to a color space, so to [0 ... 255]
+    ! the maximum is taken only on the mask, so e.g. only 3 colors while the last
+    ! entry is kept a float
+    temp_max = MAXVAL(temp_slice, DIM=3, MASK=mask)
+    WHERE (temp_max==0) temp_max=1.0
+    DO icol = 1, ncol
+        slice(:, :, icol) = INT(255 * temp_slice(:, :, icol) / temp_max)
+    END DO
+    if (ncol .ne. nweights) then
+        alpha = temp_slice(:, :, nweights)
+        alpha_mean = SUM(alpha) / SIZE(alpha)
+    endif
+
+end subroutine point_cloud_colored_slice
+
+! this routines takes a 3D image stack (nx, ny, nz, nc). Here, nc is the number
+! of integers that describe a color, so 3 for RGB, 4 for RGBA. This routine determines
+! the unique colors within the stack.
+!
+! This function is just a wrapper to get_colors_batched, due to the limitation of f2py
+! of not being able to use allocatable arrays. Therefore we need to compute
+! the array sizes and pass all those to `get_colors_batched`.
+!
+! stack:
+!     the 3D image stack of shape (nx, ny, nz, nc) where nc = 3 or 4 for RGB or RGBA
+! nx, ny, nz, nc:
+!     determine the shape of the image stack
+! nout:
+!     how many colours could be in the output. This should be less than 8 as we have no more printing channels
+! output:
+!     the returned colors that were found, up to nout of them
+! nresults:
+!     how many colors are *actually* returned. the array output would have space for more
+subroutine get_colors(stack, nx, ny, nz, nc, nout, nresults, output)
+    implicit none
+    integer, intent(in) :: nc, nx, ny, nz, nout
+    integer, intent(in) :: stack(nx, ny, nz, nc)
+    integer, intent(out) :: output(nout, nc), nresults
+    
+    integer :: batchsize = 10!1000000
+    integer :: nr, n_steps, n_all
+
+    nr = nx * ny * nz
+    n_steps = max(nr / batchsize, 1)
+    n_all = nout * n_steps
+
+    call get_colors_batched(stack, nx, ny, nz, nc, nr, batchsize, n_steps, n_all, nout, output, nresults)
+
+end subroutine get_colors
+
+! this routines takes an image stack (nx, ny, nz, 3 or 4) and determines the unique colors
+! due to the limitation of f2py of not being able to use allocatable arrays, we need to use a 
+! wrapper that computes the array sizes and passes all those to this function
+! this wrapper is `get_colors`.
+! stack:
+!     the 3D image stack of shape (nx, ny, nz, nc) where nc = 3 or 4 for RGB or RGBA
+! nx, ny, nz, nc:
+!     determine the shape of the image stack
+! nr: 
+!     numbers of rows in the flattened stack, that is (nx*ny*nz, nc)
+! batchsize:
+!     how many colors are in one batch
+! n_steps:
+!   full stack is broken up into n_steps batches, so this is n_steps = max(nr / batchsize, 1)
+! n_all: 
+!   how large the results from all batches are. Each result is up to "nout", so
+!   n_all = nout * n_steps
+! nout:
+!     how many colours could be in the output. This should be less than 8 as we have no more printing channels
+! output:
+!     the returned colors that were found, up to nout of them
+! nresults:
+!     how many colors are *actually* returned. the array output would have space for more
+subroutine get_colors_batched(stack, nx, ny, nz, nc, nr, batchsize, n_steps, n_all, nout, output, nresults)
+    implicit none
+    integer, intent(in) :: nr, n_steps, nc, nx, ny, nz, nout, n_all, batchsize
+    integer, intent(in) :: stack(nx, ny, nz, nc)
+    integer, intent(out) :: output(nout, nc), nresults
+    integer :: flatstack(nr, nc), results(nout, nc)
+    integer :: allresults(n_all, nc)
+    
+    integer :: ir, ix, iy, iz, i_step, i_start, i_end, icol
+
+    ! flatten data
+
+    do iz = 1, nz
+        do iy = 1, ny
+            do ix = 1, nx
+                ir = (iz - 1) * nx * ny + (iy - 1) * nx + ix
+                flatstack(ir, :) = stack(ix, iy, iz, :)
+            enddo
+        enddo
+    enddo
+    
+    ! now we break it up into batches
+    nresults = 0
+
+    ! we get the results for each batch and store them in allresults
+    do i_step = 1, n_steps
+        
+        i_start = (i_step - 1) * batchsize + 1
+        i_end = i_step * batchsize
+        if (i_step == n_steps) i_end = nr
+
+        call get_colors_1D(flatstack(i_start:i_end, :), icol, i_end - i_start + 1, nc, nout, results)
+        
+        allresults(nresults+1:nresults+icol, :) = results(1:icol, :)
+        nresults = nresults + icol
+
+    enddo
+
+    ! and call the method on the results of the batches
+    icol = nresults
+    call get_colors_1D(allresults(1:nresults, :), nresults, icol, nc, nout, output)
+
+end subroutine get_colors_batched
 
 
 end module

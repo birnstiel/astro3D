@@ -1,0 +1,17 @@
+[build-system]
+build-backend = 'mesonpy'
+requires = ['meson-python', 'numpy']
+
+[project]
+name = 'astro3d'
+version = '1.1.9'
+description = 'Package for Polyjet Printing methods in astrophysics and beyond'
+readme = { file = 'README.md', content-type = 'text/markdown' }
+authors = [
+    { name = "Til Birnstiel", email = "til.birnstiel@lmu.de" },
+]
+license = { file = 'LICENSE' }
+dependencies = ['numpy', 'scipy', 'matplotlib', 'tqdm', 'scikit-image', 'Pillow']
+
+[project.urls]
+Repository = "https://github.com/birnstiel/astro3dprinting"

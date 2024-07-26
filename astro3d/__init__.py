@@ -2,25 +2,12 @@ __version__ = '0.0.1'
 
 from pathlib import Path as _Path
 from pkg_resources import resource_filename as _resource_filename
-
 from ._fortran import fmodule
-from . import lic
-
-from . import volrender
 from . import image_stack
-from .volrender import TransferFunction
-from .volrender import render_movie
-from .cmaps import get_cmyk_cmap
 
 __all__ = [
-    'volrender',
     'image_stack',
     'fmodule',
-    'lic',
-    'Renderer',
-    'TransferFunction',
-    'render_movie',
-    'get_cmyk_cmap',
 ]
 
 
