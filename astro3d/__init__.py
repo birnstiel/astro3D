@@ -1,9 +1,12 @@
-__version__ = '0.0.1'
-
 from pathlib import Path as _Path
 from pkg_resources import resource_filename as _resource_filename
+from importlib import metadata as _md
+
 from ._fortran import fmodule
 from . import image_stack
+
+__version__ = _md.version('astro3d')
+
 
 __all__ = [
     'image_stack',
