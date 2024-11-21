@@ -1,10 +1,26 @@
 from itertools import repeat
 from string import ascii_letters
 from functools import partial
-from multiprocessing import shared_memory
+from multiprocessing import shared_memory, Lock
 import multiprocessing
 import numpy as np
 import time
+import contextlib
+
+_lock_var = None
+
+
+def set_lock(value):
+    """
+    Sets the global lock variable to the specified value. This can be used
+    in a multiprocessing pool to synchronize access to shared memory.
+
+    Parameters:
+    value (any): The value to set the global lock variable (_lock_var) to.
+    """
+
+    global _lock_var
+    _lock_var = value
 
 
 def getname():
@@ -106,11 +122,12 @@ def _work(i, name, shape):
     # Open the existing shared memory
     shm, arr = get_shared_array(name, shape)
 
-    # save the ID and value
-    time.sleep(2)
-    _id = id(shm.buf)
-    val = arr[0, 0, 0]
-    arr[0, 0, 0] += 1
+    with _lock_var:
+        # save the ID and value
+        time.sleep(2)
+        _id = id(shm.buf)
+        val = arr[0, 0, 0]
+        arr[0, 0, 0] += 1
 
     # Close the shared memory
     shm.close()
@@ -118,7 +135,7 @@ def _work(i, name, shape):
     return _id, val
 
 
-def test_shared_memory(n_proc=8):
+def test_shared_memory(n_proc=8, writing=True):
     """
     Test function for shared memory operations.
     This function sets up a shared memory array, distributes work across
@@ -141,8 +158,24 @@ def test_shared_memory(n_proc=8):
     print(f'shared array name = {name}')
     print(f'shared array size: {myarr.nbytes / (1024)**3:.3f} GB')
 
-    with multiprocessing.Pool(n_proc) as p:
-        res = p.starmap(_work, zip(range(n_proc), repeat(name), repeat(shape)))
+    # here we set up a lock for synchronization if the memory is being written to
+    if writing:
+        lock = Lock()
+    else:
+        lock = contextlib.suppress()
+
+    # create a pool of processes: the initializer function is called with the lock
+    # as an argument, and the lock is set as a global variable such that this lock
+    # can be used in the _work function
+    # if the memory is not being written to, the lock is set to a context manager that
+    # does nothing. In that case, none of the lock, initializer, or initargs arguments
+    # are needed.
+    with multiprocessing.Pool(n_proc, initializer=set_lock, initargs=(lock,)) as p:
+        res = p.starmap(_work, zip(
+            range(n_proc),
+            repeat(name),
+            repeat(shape)
+        ))
 
     for r in res:
         print(f'{r[0]}\t{r[1]}')
