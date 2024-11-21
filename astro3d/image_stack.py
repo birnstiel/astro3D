@@ -1260,6 +1260,75 @@ def dither_brighten(img, value, use_alpha=True, bg=None):
     return img
 
 
+def get_cartesian_ranges(r, theta, phi):
+    """
+    get the ranges of the cartesian coordinates for a given spherical grid.
+
+    Parameters
+    ----------
+    r : array
+        radial grid
+    theta : array
+        theta grid
+    phi : array
+        phi grid
+
+    Returns
+    -------
+    x_range, y_range, z_range
+        the ranges of the grid in cartesian coordinates
+    """
+    X = (r[:, None, None] * np.cos(phi)[None, None, :]
+         * np.sin(theta)[None, :, None])
+    x_range = (X.max() - X.min())
+    del Xi
+
+    Y = r[:, None, None] * \
+        np.sin(phi)[None, None, :] * np.sin(theta)[None, :, None]
+    y_range = (Y.max() - Y.min())
+    del Yi
+
+    Z = r[:, None, None] * np.cos(theta)[None, :, None]
+    z_range = (Z.max() - Z.min())
+    del Zi
+
+    return x_range, y_range, z_range
+
+
+def get_width_depth_height(x_range, y_range, z_range, width=None, depth=None, height=None):
+    """
+    Calculate the width, depth, and height of a 3D object given one of the dimensions and the ranges in each direction.
+    Parameters:
+    x_range (float): The range in the x-direction.
+    y_range (float): The range in the y-direction.
+    z_range (float): The range in the z-direction.
+    width (float, optional): The width of the object. Default is None.
+    depth (float, optional): The depth of the object. Default is None.
+    height (float, optional): The height of the object. Default is None.
+    Returns:
+    tuple: A tuple containing the width, depth, and height of the object.
+    Raises:
+    ValueError: If not exactly one of width, depth, or height is provided.
+    """
+
+    # this should be the total length of the printed cube in cm in x-direction.
+    if np.sum(np.array([width, depth, height]) == None) != 1:
+        raise ValueError(
+            'exactly one of width, depth, or height needs to be given')
+
+    if width is not None:
+        depth = width / x_range * y_range
+        height = width / x_range * z_range
+    elif depth is not None:
+        width = depth / y_range * x_range
+        height = depth / y_range * z_range
+    elif height is not None:
+        width = height / z_range * x_range
+        depth = height / z_range * y_range
+
+    return width, depth, height
+
+
 def image_stack_from_point_cloud(xi, yi, zi, sigmas=None, n_sigma=5, weights=None, xg=None, yg=None, zg=None, n=None, alpha_method=False):
     """Create an image stack from a list of points
 
@@ -1994,7 +2063,8 @@ class IStack(object):
         self._imgs.flags.writeable = True
 
         # define a matching-size view into the stack
-        slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]:p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
+        slice = self.imgs[p0[0]:p0[0] + im_size[0], p0[1]
+            :p0[1] + im_size[1], p0[2]:p0[2] + im_size[2]]
 
         # assign this array to the original image stack
         slice[...] = np.where(alpha_mask == 255, im2, slice)
