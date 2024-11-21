@@ -916,9 +916,9 @@ def show_histogram(data, norm, colors=None, levels=None, sigmas=None, clips=None
         dist_sq[dn == 0.0] = np.inf
         dist_sq[dist_sq > np.array(clips)**2] = np.inf
         color_density = 1. / (1 + dist_sq) * fill
-        ff = color_density.sum() / np.product(data.shape)
+        ff = color_density.sum() / np.prod(data.shape)
     else:
-        ff = (norm(data.ravel(), clip=True)).sum() / np.product(data.shape)
+        ff = (norm(data.ravel(), clip=True)).sum() / np.prod(data.shape)
 
     ax2 = ax.secondary_xaxis('top', functions=(norm.inverse, norm))
     ax2.set_xlabel('original density')
