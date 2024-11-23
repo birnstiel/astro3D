@@ -4,6 +4,7 @@ import imageio
 from colorsys import rgb_to_hsv
 from functools import lru_cache
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -1280,19 +1281,34 @@ def get_cartesian_ranges(r, theta, phi):
     """
     X = (r[:, None, None] * np.cos(phi)[None, None, :]
          * np.sin(theta)[None, :, None])
-    x_range = (X.max() - X.min())
-    del Xi
+    xmax = X.max()
+    xmin = X.min()
+    x_range = xmax - xmin
+    del X
 
     Y = r[:, None, None] * \
         np.sin(phi)[None, None, :] * np.sin(theta)[None, :, None]
-    y_range = (Y.max() - Y.min())
-    del Yi
+    ymax = Y.max()
+    ymin = Y.min()
+    y_range = ymax - ymin
+    del Y
 
     Z = r[:, None, None] * np.cos(theta)[None, :, None]
-    z_range = (Z.max() - Z.min())
-    del Zi
+    zmax = Z.max()
+    zmin = Z.min()
+    z_range = zmax - zmin
+    del Z
 
-    return x_range, y_range, z_range
+    return  SimpleNamespace(
+        xmin=xmin,
+        xmax=xmax,
+        ymin=ymin,
+        ymax=ymax,
+        zmin=zmin,
+        zmax=zmax,
+        x_range=x_range,
+        y_range=y_range,
+        z_range=z_range)
 
 
 def get_width_depth_height(x_range, y_range, z_range, width=None, depth=None, height=None):
@@ -1312,7 +1328,7 @@ def get_width_depth_height(x_range, y_range, z_range, width=None, depth=None, he
     """
 
     # this should be the total length of the printed cube in cm in x-direction.
-    if np.sum(np.array([width, depth, height]) == None) != 1:
+    if np.sum(np.array([width, depth, height]) != None) != 1:
         raise ValueError(
             'exactly one of width, depth, or height needs to be given')
 
