@@ -2,7 +2,8 @@ py_subdir = 'astro3d'
 
 py3.install_sources([
   '__init__.py',
-  'image_stack.py'
+  'image_stack.py',
+  'memory_helper.py',
   ], subdir: py_subdir)
 
 fortran_module_name = '_fortran'

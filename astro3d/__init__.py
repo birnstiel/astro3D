@@ -4,6 +4,7 @@ from importlib import metadata as _md
 
 from ._fortran import fmodule
 from . import image_stack
+from . import memory_helper
 
 __version__ = _md.version('astro3d')
 
@@ -11,6 +12,7 @@ __version__ = _md.version('astro3d')
 __all__ = [
     'image_stack',
     'fmodule',
+    'memory_helper',
 ]
 
 
