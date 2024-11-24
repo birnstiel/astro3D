@@ -238,7 +238,8 @@ do ip = 1, np
     call hunt(y, ny, points(ip, 2), iy)
     call hunt(z, nz, points(ip, 3), iz)
 
-    if ((ix > nx - 1) .or. (iy > ny - 1) .or. (iz > nz - 1)) then
+    if ((ix > nx - 1) .or. (iy > ny - 1) .or. (iz > nz - 1) .or. &
+        & (ix < 1) .or. (iy < 1) .or. (iz < 1)) then
         newvals(ip) = fill_value
         CYCLE
     endif
