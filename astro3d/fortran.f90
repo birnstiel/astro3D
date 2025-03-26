@@ -399,17 +399,18 @@ subroutine compute_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, n
         !$OMP PARALLEL PRIVATE(tf, iy, ie) SHARED(image)
         !$OMP DO
         do ix = 1, nx
-            do iy = 1, ny
+            yloop: do iy = 1, ny
                 ! this array is set to 0 for every transparent pixel, and 1 for the rest
                 tf = factor1
                 do ie = 1, nempty
                     if (all(slice(ix, iy, :) .eq. empty_colors(ie, :))) then
-                        tf = 1.0
+                        !tf = 1.0
+                        cycle yloop
                     endif
                 enddo
 
                 image(ix, iy, :) = image(ix, iy, :) * tf + (1d0 - tf) * slice(ix, iy, :)
-            enddo
+            enddo yloop
         enddo
         !$OMP END DO
         !$OMP END PARALLEL
