@@ -1,5 +1,4 @@
-project('astro3d', 'c')
-add_languages('fortran')
+project('astro3d', 'c', 'fortran')
 
 py_mod = import('python')
 py3 = py_mod.find_installation(pure: false)

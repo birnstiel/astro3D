@@ -215,8 +215,9 @@ INTEGER :: ix, iy, iz, ip
 DOUBLE PRECISION :: xd, yd, zd
 DOUBLE PRECISION :: c00, c01, c10, c11, c0, c1
 
+call set_threads()
 
-!$OMP PARALLEL PRIVATE(ix, iy, iz, ip, xd, yd, zd, c00,c01,c10,c11,c0,c1) SHARED(newvals)
+!$OMP PARALLEL NUM_THREADS(numthreads) PRIVATE(ix, iy, iz, ip, xd, yd, zd, c00,c01,c10,c11,c0,c1) SHARED(newvals)
 ix = 1
 iy = 1
 iz = 1
@@ -384,27 +385,27 @@ subroutine compute_view(data, i0, i1, step, image, n_tauone, empty_colors, bg, n
     integer, intent(in) :: empty_colors(nempty, 3)
     double precision, intent(in) :: bg(3)
     double precision, intent(out) :: image(nx, ny, 3)
-    double precision :: slice(nx, ny, 3), factor1, tf
+    double precision :: slice(nx, ny, 3), tf
 
     integer :: i, ix, iy, ie
+
+    call set_threads()
 
     do i = 1, 3
         image(:, :, i) = bg(i)
     enddo
 
-    factor1 = exp(-1d0 / n_tauone)
+    tf = exp(-1d0 / n_tauone)
 
     do i = i0, i1, step
         slice = data(:, :, i, :)
-        !$OMP PARALLEL PRIVATE(tf, iy, ie) SHARED(image)
+        !$OMP PARALLEL NUM_THREADS(numthreads) PRIVATE(iy, ie) SHARED(image, tf)
         !$OMP DO
         do ix = 1, nx
             yloop: do iy = 1, ny
                 ! this array is set to 0 for every transparent pixel, and 1 for the rest
-                tf = factor1
                 do ie = 1, nempty
                     if (all(slice(ix, iy, :) .eq. empty_colors(ie, :))) then
-                        !tf = 1.0
                         cycle yloop
                     endif
                 enddo
@@ -584,6 +585,7 @@ subroutine point_cloud_colored_slice(slice, alpha, alpha_mean, xg, yg, z, xi, yi
 
     ! all the counters and indices
     integer :: ix, iy, istar, ix0, iy0, ix1, iy1, icol
+    double precision :: gauss
 
     ! the mask will be set to either include the last color (if it is like a regular color)
     ! or wheter it will normalize all colors, except the last one (in case its an alpha transparency)
@@ -609,7 +611,7 @@ subroutine point_cloud_colored_slice(slice, alpha, alpha_mean, xg, yg, z, xi, yi
     mask = .true.
     if (nweights .eq. ncol + 1) mask(:, :, nweights) = .false.
 
-    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, istar, ix0, ix1, iy0, iy1, icol) &
+    !$OMP PARALLEL NUM_THREADS(numthreads)  PRIVATE(ix, iy, istar, ix0, ix1, iy0, iy1, icol, gauss) &
     !$OMP SHARED(lower_bound, upper_bound, sigma, weights, temp_slice, xg, yg, z, xi, yi, zi)
     !$OMP DO SCHEDULE(STATIC)
     ! find the lowest and highest indices of stars that may contribute
@@ -633,13 +635,17 @@ subroutine point_cloud_colored_slice(slice, alpha, alpha_mean, xg, yg, z, xi, yi
             
         DO iy=iy0, iy1
             DO ix=ix0, ix1
-                !OMP ATOMIC
-                temp_slice(ix, iy, :) = temp_slice(ix, iy, :) + weights(istar, :) * &
-                    & exp(- ( & 
+                gauss = exp(- ( &
                         (xg(ix) - xi(istar))**2  + &
                         (yg(iy) - yi(istar))**2  + &
                         (z      - zi(istar))**2  &
                     ) / (2 * sigma(istar)**2)) * fact / sigma(istar)
+                ! several stars can overlap the same pixel: update atomically
+                ! (OMP ATOMIC only works on scalars, hence the loop)
+                DO icol = 1, nweights
+                    !$OMP ATOMIC
+                    temp_slice(ix, iy, icol) = temp_slice(ix, iy, icol) + weights(istar, icol) * gauss
+                END DO
             END DO
         END DO
     END DO
