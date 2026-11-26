@@ -1,0 +1,27 @@
+# runs the test suite on every push and pull request (Linux and macOS)
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # installs pixi and the environment from pixi.lock (incl. compilers),
+      # then builds and installs astro3d
+      - uses: prefix-dev/setup-pixi@v0.11.3
+        with:
+          cache: true
+          locked: true
+
+      - name: run tests
+        run: pixi run test -rxs

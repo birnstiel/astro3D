@@ -11,7 +11,14 @@ authors = [
     { name = "Til Birnstiel", email = "til.birnstiel@lmu.de" },
 ]
 license = { file = 'LICENSE' }
-dependencies = ['numpy', 'scipy', 'matplotlib', 'tqdm', 'scikit-image', 'Pillow']
+requires-python = '>=3.10'
+dependencies = ['numpy', 'scipy', 'matplotlib', 'tqdm', 'scikit-image', 'Pillow', 'imageio', 'pooch']
+
+[tool.pytest.ini_options]
+testpaths = ['tests']
+markers = [
+    'network: needs internet access to download data (deselect with -m "not network")',
+]
 
 [project.urls]
 Repository = "https://github.com/birnstiel/astro3dprinting"

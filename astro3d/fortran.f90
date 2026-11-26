@@ -202,6 +202,50 @@ subroutine hunt(xx, n, x, jlo)
 end subroutine hunt
 ! =============================================================================
 
+! =============================================================================
+! finds the index range [i0, i1] of all grid points xg with
+! x0 - dx <= xg <= x0 + dx (ascending grid). The range is empty (i0 > i1)
+! if no grid point is within. i0 and i1 are also used as initial guesses
+! for `hunt`, so passing in the values from the previous call speeds things up.
+! =============================================================================
+subroutine cutoff_range(xg, n, x0, dx, i0, i1)
+    implicit none
+    integer, intent(in) :: n
+    double precision, intent(in) :: xg(n), x0, dx
+    integer, intent(inout) :: i0, i1
+    double precision :: lo, hi
+
+    lo = x0 - dx
+    hi = x0 + dx
+
+    ! hunt brackets the value to within one cell, but it is not consistent
+    ! about points exactly on the boundary. We therefore fix the result
+    ! locally: i0 = first point >= lo, i1 = last point <= hi.
+
+    call hunt(xg, n, lo, i0)
+    i0 = min(max(i0, 1), n)
+    do while (i0 > 1)
+        if (xg(i0 - 1) < lo) exit
+        i0 = i0 - 1
+    enddo
+    do while (i0 <= n)
+        if (xg(i0) >= lo) exit
+        i0 = i0 + 1
+    enddo
+
+    call hunt(xg, n, hi, i1)
+    i1 = min(max(i1, 1), n)
+    do while (i1 < n)
+        if (xg(i1 + 1) > hi) exit
+        i1 = i1 + 1
+    enddo
+    do while (i1 >= 1)
+        if (xg(i1) <= hi) exit
+        i1 = i1 - 1
+    enddo
+end subroutine cutoff_range
+! =============================================================================
+
 subroutine interpolate(x, y, z, vals, points, nx, ny, nz, np, newvals)
 implicit none
 INTEGER, INTENT(in) :: nx, ny, nz, np
@@ -513,15 +557,8 @@ subroutine point_cloud(xg, yg, zg, xi, yi, zi, sigma, image, weights, n_sigma, n
             endif
         
             ! find the bounds around the star where we might add density
-            call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
-            call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
-            call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
-            call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
-
-            ix0 = max(ix0, 1)
-            ix1 = min(ix1, nx)
-            iy0 = max(iy0, 1)
-            iy1 = min(iy1, ny)
+            call cutoff_range(xg, nx, xi(istar), n_sigma * sigma(istar), ix0, ix1)
+            call cutoff_range(yg, ny, yi(istar), n_sigma * sigma(istar), iy0, iy1)
                 
             DO iy=iy0, iy1
                 DO ix=ix0, ix1
@@ -623,15 +660,8 @@ subroutine point_cloud_colored_slice(slice, alpha, alpha_mean, xg, yg, z, xi, yi
         endif
     
         ! find the bounds around the star where we might add density
-        call hunt(xg, nx, xi(istar) - n_sigma * sigma(istar), ix0)
-        call hunt(yg, ny, yi(istar) - n_sigma * sigma(istar), iy0)
-        call hunt(xg, nx, xi(istar) + n_sigma * sigma(istar), ix1)
-        call hunt(yg, ny, yi(istar) + n_sigma * sigma(istar), iy1)
-
-        ix0 = max(ix0, 1)
-        ix1 = min(ix1, nx)
-        iy0 = max(iy0, 1)
-        iy1 = min(iy1, ny)
+        call cutoff_range(xg, nx, xi(istar), n_sigma * sigma(istar), ix0, ix1)
+        call cutoff_range(yg, ny, yi(istar), n_sigma * sigma(istar), iy0, iy1)
             
         DO iy=iy0, iy1
             DO ix=ix0, ix1

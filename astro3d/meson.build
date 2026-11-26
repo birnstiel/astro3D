@@ -3,8 +3,12 @@ py_subdir = 'astro3d'
 py3.install_sources([
   '__init__.py',
   'image_stack.py',
+  'datasets.py',
   'memory_helper.py'
   ], subdir: py_subdir)
+
+# logo and example images used by the notebooks
+install_subdir('figures', install_dir: py3.get_install_dir() / py_subdir)
 
 fortran_module_name = '_fortran'
 

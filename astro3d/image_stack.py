@@ -1,5 +1,6 @@
 from pathlib import Path
 from itertools import repeat, cycle
+import copy
 import imageio
 from colorsys import rgb_to_hsv
 from functools import lru_cache
@@ -584,11 +585,11 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
     dpi_x : int, optional
         x resolution of the printer, by default 600
     dpi_y : int, optional
-        y resolution of the printer, by default 600
+        y resolution of the printer, by default 300
     dpi_z : int, optional
-        z resolution of the printer, by default 1200
+        z resolution of the printer, by default 941
     x, y, z : array
-        input grids of the data-cube
+        input grids of the data-cube, by default the cell indices
     output_dir : str, optional
         path of output directory, by default 'slices'
     norm : norm or None or str, optional
@@ -612,37 +613,44 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
         if norm is invalid string
     """
 
-    # define the norm
+    # define the norm. Priority for the limits: arguments `vmin`/`vmax`,
+    # then the limits of a given norm, then defaults derived from the data.
 
     if norm is None or isinstance(norm, str):
 
-        if isinstance(norm, str) and norm in ['lin', 'linear']:
+        if norm in ['lin', 'linear']:
             print('using linear norm ', end='')
-            Norm = Normalize
-        elif isinstance(norm, str) and norm in ['log', 'logarithmic']:
+            norm = Normalize(clip=True)
+        elif norm in ['log', 'logarithmic']:
             print('using logarithmic norm ', end='')
-            Norm = LogNorm
+            norm = LogNorm(clip=True)
         elif norm is None:
-            Norm = LogNorm
             print('no norm given, using logarithmic norm ', end='')
+            norm = LogNorm(clip=True)
         else:
             raise ValueError(
                 'norm is not a valid input argument for normalization')
-
-        vmax = vmax or norm.vmax or 10**np.ceil(np.log10(data.max()))
-        vmin = vmin or norm.vmin or 1e-2 * vmax
-        norm = Norm(vmin=vmin, vmax=vmax, clip=True)
     else:
-        vmax = vmax or norm.vmax or 10**np.ceil(np.log10(data.max()))
-        vmin = vmin or norm.vmin or 1e-2 * vmax
+        # copy, so that we do not modify the user's norm
+        norm = copy.copy(norm)
+
+    if vmax is None:
+        vmax = norm.vmax if norm.vmax is not None else 10**np.ceil(np.log10(data.max()))
+    if vmin is None:
+        vmin = norm.vmin if norm.vmin is not None else 1e-2 * vmax
+
+    # set the limits explicitly: otherwise matplotlib would autoscale
+    # the norm on the first slice only
+    norm.vmin = vmin
+    norm.vmax = vmax
 
     print(f'{type(norm).__name__} from {vmin:.2g} to {vmax:.2g}')
 
     # create original grid and interpolation function
 
-    x = x or np.arange(data.shape[0])
-    y = y or np.arange(data.shape[1])
-    z = z or np.arange(data.shape[2])
+    x = np.arange(data.shape[0]) if x is None else np.asarray(x, dtype=float)
+    y = np.arange(data.shape[1]) if y is None else np.asarray(y, dtype=float)
+    z = np.arange(data.shape[2]) if z is None else np.asarray(z, dtype=float)
 
     lx = x[-1] - x[0]
     ly = y[-1] - y[0]
@@ -660,9 +668,10 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
     n_x += n_x % 2  # add 1 to make it even if it isn't
     n_y += n_y % 2  # add 1 to make it even if it isn't
 
-    x2 = np.linspace(0, data.shape[0] - 1, n_x)
-    y2 = np.linspace(0, data.shape[1] - 1, n_y)
-    z2 = np.linspace(0, data.shape[2] - 1, n_z)
+    # the printer grid spans the same range as the data grid
+    x2 = np.linspace(x[0], x[-1], n_x)
+    y2 = np.linspace(y[0], y[-1], n_y)
+    z2 = np.linspace(z[0], z[-1], n_z)
     coords = (x2, y2, z2)
 
     print(
@@ -684,16 +693,20 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
             for file in files:
                 file.unlink()
 
-    if iz is not None:
-        z2 = z2[np.array(iz, ndmin=1)]
+    # which layers to produce. We keep the full `z2` so that each file is
+    # named after its index in the full stack (slice_0500.png for iz=500).
+    if iz is None:
+        indices = np.arange(n_z)
+    else:
+        indices = np.array(iz, ndmin=1)
         print(
-            f'only printing {len(np.array(iz, ndmin=1)) * 2.54 / dpi_z:.2f} cm of it')
+            f'only printing {len(indices) * 2.54 / dpi_z:.2f} cm of it')
 
-    n = len(z2)
+    n = len(indices)
 
     if pool is None:
         list(tqdm(
-            map(makeslice, range(n),
+            map(makeslice, indices,
                 repeat(z2),
                 repeat(f_interp),
                 repeat(coords),
@@ -711,7 +724,7 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
                     makeslice,
                     tqdm(
                         zip(
-                            range(n),
+                            indices,
                             repeat(z2),
                             repeat(f_interp),
                             repeat(coords),

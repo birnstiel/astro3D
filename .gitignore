@@ -17,3 +17,7 @@ slice_*.png
 *.zip
 __pycache__/
 /docs/
+
+# pixi: keep only the project config (environments are detached)
+.pixi/*
+!.pixi/config.toml

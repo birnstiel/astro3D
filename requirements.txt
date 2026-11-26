@@ -1,6 +1,0 @@
-numpy
-scipy
-matplotlib
-tqdm
-scikit-image
-Pillow
