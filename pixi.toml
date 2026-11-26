@@ -1,0 +1,40 @@
+[workspace]
+name = "astro3d"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
+
+[dependencies]
+# scikit-image has no python 3.15 build on conda-forge yet
+python = ">=3.14,<3.15"
+
+# runtime dependencies (keep in sync with pyproject.toml)
+numpy = ">=2.5"
+scipy = ">=1.18"
+matplotlib = ">=3.11"
+tqdm = ">=4.70"
+pillow = ">=13.0"
+scikit-image = ">=0.26"
+imageio = ">=2.38"
+pooch = "*"
+
+# build tools: compilers come from conda-forge, no system gfortran needed
+meson-python = ">=0.22"
+ninja = ">=1.13"
+c-compiler = "*"
+fortran-compiler = "*"
+
+# development
+ipykernel = ">=7.4"
+pytest = ">=9.2"
+
+[pypi-dependencies]
+# the package itself, editable: python changes are live, the Fortran
+# extension is rebuilt automatically on the next import
+astro3d = { path = ".", editable = true }
+
+[pypi-options]
+# build with the compilers & meson from this environment
+no-build-isolation = ["astro3d"]
+
+[tasks]
+test = "pytest"

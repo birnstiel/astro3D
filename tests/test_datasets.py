@@ -6,12 +6,18 @@ from astro3d import datasets
 
 
 def test_available():
-    assert datasets.available() == ['mhddisk.npz', 'streamlines.npz', 'turbulentbox.npy']
+    assert 'turbulentbox.npy' in datasets.available()
+    assert 'diskdata_magx.npz' in datasets.available()
 
 
-@pytest.mark.parametrize('name', ['turbulentbox', 'turbulentbox.npy'])
-def test_resolve_name(name):
-    assert datasets._resolve(name) == 'turbulentbox.npy'
+@pytest.mark.parametrize('name, fname', [
+    ('turbulentbox', 'turbulentbox.npy'),
+    ('turbulentbox.npy', 'turbulentbox.npy'),
+    ('diskdata_rho', 'diskdata_rho.npz'),
+    ('shocks', 'shocks.csv'),
+])
+def test_resolve_name(name, fname):
+    assert datasets._resolve(name) == fname
 
 
 def test_unknown_name():

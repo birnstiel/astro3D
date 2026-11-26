@@ -34,6 +34,13 @@ REGISTRY = {
     'mhddisk.npz': 'sha256:73e84b17a170ce3cf96d7381006d8921874b392c7ae032c9cc2405049dd005e8',
     # magnetic field lines of the MHD disk, key `pathes` (needs allow_pickle=True)
     'streamlines.npz': 'sha256:734728be671c9bb80ad02a277eb493c359a6e249a8bf9ae22388986ed91e833b',
+    # MHD disk fields used to compute the streamlines (159^3 float32, key `arr_0`)
+    'diskdata_rho.npz': 'sha256:6aced9bce13af750fca0399482251ec983eb4d13487b7d6c4e983e9b8434eeca',
+    'diskdata_magx.npz': 'sha256:47712626d9d884e3bbb642310fa16d7a84ea41db6577bf0adbe370d2f59a3e43',
+    'diskdata_magy.npz': 'sha256:295163ac7918423bd2bf1ce1e1acf2eb8763d2ddc14ec9ef82602d67b257391a',
+    'diskdata_magz.npz': 'sha256:f9dce9c23c09206e4e0184bbc488a74d064eaf513929599a84b9397eba424b06',
+    # point cloud of shock surfaces, columns: x,y,z,hsml,mach,r,g,b
+    'shocks.csv': 'sha256:f9699e27298bd9064b9184dc7f158ec83b7232f02d3c0819d4b54d6f0a26a57a',
 }
 
 _POOCH = pooch.create(
