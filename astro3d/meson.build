@@ -4,7 +4,6 @@ py3.install_sources([
   '__init__.py',
   'image_stack.py',
   'datasets.py',
-  'memory_helper.py'
   ], subdir: py_subdir)
 
 # logo and example images used by the notebooks

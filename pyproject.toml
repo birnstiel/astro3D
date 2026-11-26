@@ -4,7 +4,7 @@ requires = ['meson-python', 'numpy']
 
 [project]
 name = 'astro3d'
-version = '1.1.9'
+version = '2.0.0.dev0'
 description = 'Package for Polyjet Printing methods in astrophysics and beyond'
 readme = { file = 'README.md', content-type = 'text/markdown' }
 authors = [
@@ -21,4 +21,4 @@ markers = [
 ]
 
 [project.urls]
-Repository = "https://github.com/birnstiel/astro3dprinting"
+Repository = "https://github.com/birnstiel/astro3D"

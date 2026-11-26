@@ -9,7 +9,7 @@ import pytest
 from matplotlib.colors import Normalize
 from PIL import Image
 
-from astro3d import image_stack
+from astro3d import fmodule, image_stack
 
 # print size: height=0.03 cm at 941 dpi gives 11 layers
 SIZE = dict(height=0.03, dpi_x=600, dpi_y=300, dpi_z=941)
@@ -73,6 +73,22 @@ def test_process_single_layer(small_cube, slices, tmp_path):
     res = _read_slices(tmp_path / 's')
     assert list(res) == ['slice_0005.png']
     np.testing.assert_array_equal(res['slice_0005.png'], _read_slices(slices)['slice_0005.png'])
+
+
+def test_process_threads_match_serial(small_cube, tmp_path, numthreads):
+    """slices computed in parallel threads are identical to serial ones,
+    and the fortran thread count is restored afterwards"""
+    norm = Normalize(vmin=0, vmax=small_cube.max())
+    fmodule.numthreads = 3
+    for n in [1, 4]:
+        image_stack.process(small_cube, output_dir=tmp_path / f't{n}', norm=norm,
+                            n_threads=n, **SIZE)
+        assert int(fmodule.numthreads) == 3
+    ref = _read_slices(tmp_path / 't1')
+    res = _read_slices(tmp_path / 't4')
+    assert ref.keys() == res.keys() and len(ref) > 1
+    for name in ref:
+        np.testing.assert_array_equal(ref[name], res[name])
 
 
 @pytest.mark.xfail(raises=AttributeError, strict=True,

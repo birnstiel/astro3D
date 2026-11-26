@@ -1,9 +1,9 @@
+import os as _os
 from pathlib import Path as _Path
 from importlib import metadata as _md
 
 from ._fortran import fmodule
 from . import image_stack
-from . import memory_helper
 from . import datasets
 
 __version__ = _md.version('astro3d')
@@ -12,7 +12,6 @@ __version__ = _md.version('astro3d')
 __all__ = [
     'image_stack',
     'fmodule',
-    'memory_helper',
     'datasets',
     'get_figure',
     'get_output',
@@ -42,31 +41,22 @@ def get_figure(fname):
 
 
 def get_output(fname=None):
-    """Retrieve data from from packages OUTPUT directory
+    """Return the folder for generated output (e.g. image stacks).
 
-    Argument
-    --------
+    This is the folder `output` in the current working directory, or the
+    folder given by the environment variable `ASTRO3D_OUTPUT_DIR`. The base
+    folder is created if needed, `fname` is not (the caller creates it).
 
+    Parameters
+    ----------
     fname : None | str
-        if None: it returns the base path
-        if string: returns file path if it exists, otherwise lists existing files
+        if given, return the path of this file/folder within the output folder
 
-    Output
-    ------
-    str : absolute path to base directory or file
-
+    Returns
+    -------
+    pathlib.Path
+        absolute path to the output folder or to `fname` within it
     """
-    p = _PACKAGE_DIR / 'output'
-    p.mkdir(exist_ok=True)
-
-    if fname is None:
-        return str(p)
-
-    file = p / fname
-    if file.exists() and (fname != ''):
-        return str(file)
-
-    print(f'Base path is \'{str(p)}\'')
-    for file in p.glob('*'):
-        print(f'- {str(file.name)}')
-    return str(p)
+    base = _Path(_os.environ.get('ASTRO3D_OUTPUT_DIR', 'output')).resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    return base if fname is None else base / fname

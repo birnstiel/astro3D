@@ -1,4 +1,5 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat, cycle
 import copy
 import imageio
@@ -573,7 +574,7 @@ def makeslice_from_colordensity(path, color_density, iz, fill=1.0, colors=None, 
 
 
 def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices',
-            norm=None, f=1.0, pool=None, vmin=None, vmax=None, iz=None, x=None, y=None, z=None):
+            norm=None, f=1.0, n_threads=None, vmin=None, vmax=None, iz=None, x=None, y=None, z=None):
     """produce the image stack for 3D printing the given dataset
 
     Parameters
@@ -598,8 +599,9 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
         or linear norm if set to 'lin', by default None
     f : float, optional
         filling factor, default 1.0
-    pool : None or pool object, optional
-        pool for parallel processing, by default None
+    n_threads : None or int, optional
+        number of slices computed in parallel (threads), by default None
+        which uses all CPU cores. Use 1 for serial processing.
     vmin : None or float, optional
         minimum value if norm is not given, by default None
     vmax : None or float, optional
@@ -656,6 +658,10 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
     ly = y[-1] - y[0]
     lz = z[-1] - z[0]
 
+    # the fortran interpolation needs double precision in fortran order;
+    # convert once here, otherwise f2py copies the full array for every slice
+    data = np.asfortranarray(data, dtype=np.float64)
+
     def f_interp(coords):
         return fmodule.interpolate(x, y, z, data, coords)
 
@@ -703,38 +709,25 @@ def process(data, height=10, dpi_x=600, dpi_y=300, dpi_z=941, output_dir='slices
             f'only printing {len(indices) * 2.54 / dpi_z:.2f} cm of it')
 
     n = len(indices)
+    n_threads = max(1, min(n_threads or os.cpu_count() or 1, n))
 
-    if pool is None:
-        list(tqdm(
-            map(makeslice, indices,
-                repeat(z2),
-                repeat(f_interp),
-                repeat(coords),
-                repeat(norm),
-                repeat(path),
-                repeat(None),
-                repeat(None),
-                repeat(f),
-                ),
-            total=n))
-    else:
-        with pool:
-            list(
-                pool.starmap(
-                    makeslice,
-                    tqdm(
-                        zip(
-                            indices,
-                            repeat(z2),
-                            repeat(f_interp),
-                            repeat(coords),
-                            repeat(norm),
-                            repeat(path),
-                            repeat(None),
-                            repeat(None),
-                            repeat(f),
-                        ), total=n),
-                    chunksize=4))
+    def work(i):
+        makeslice(i, z2, f_interp, coords, norm, path, fill=f)
+
+    # Slices are computed in parallel threads. This works because the
+    # expensive parts release the GIL: the fortran routines (`!f2py threadsafe`),
+    # numpy, and the PNG compression. Each thread then uses a single core,
+    # so the OpenMP parallelization inside the fortran code is switched off
+    # meanwhile, otherwise the threads would compete for the cores.
+    fmodule.set_threads()
+    omp_threads = int(fmodule.numthreads)
+    if n_threads > 1:
+        fmodule.numthreads = 1
+    try:
+        with ThreadPoolExecutor(n_threads) as pool:
+            list(tqdm(pool.map(work, indices), total=n))
+    finally:
+        fmodule.numthreads = omp_threads
 
 
 def index_lookup(img, palette):

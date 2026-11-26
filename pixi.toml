@@ -38,3 +38,4 @@ no-build-isolation = ["astro3d"]
 
 [tasks]
 test = "pytest"
+bench = "python benchmarks/bench_process.py"

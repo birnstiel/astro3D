@@ -28,7 +28,7 @@ BASE_URL = 'doi:10.5281/zenodo.XXXXXXX/'
 # file name -> hash. If a file changes, upload it as a new Zenodo version
 # and update the DOI and hash here.
 REGISTRY = {
-    # 256^3 turbulent box (density), float64
+    # 256^3 turbulent box (density), float32
     'turbulentbox.npy': 'sha256:1f29fbeebcbb8c2b451591036849259721a5642c52777a98278941c1e6646faa',
     # MHD disk density, key `arr_0`
     'mhddisk.npz': 'sha256:73e84b17a170ce3cf96d7381006d8921874b392c7ae032c9cc2405049dd005e8',

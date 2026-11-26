@@ -9,6 +9,11 @@ module fmodule
     !integer, allocatable :: module_image(:, :, :, :)
     !double precision, allocatable :: temp_image(:, :, :)
 
+    ! Routines marked with `!f2py threadsafe` release the Python GIL while
+    ! they run, so several Python threads can call them at the same time.
+    ! They must therefore only work on their arguments and local variables,
+    ! never write to module variables like `numthreads`.
+
     contains
 
 
@@ -31,6 +36,7 @@ end subroutine set_threads
 ! input should be double precision with values between 0.0 and 1.0
 ! output will only have 0.0 or 1.0
 subroutine dither(input, output, nx, ny)
+!f2py threadsafe
     integer, intent(in) :: nx, ny
     double precision, intent(in) :: input(nx, ny)
     double precision, intent(out) :: output(nx, ny)
@@ -78,6 +84,7 @@ subroutine dither(input, output, nx, ny)
 ! input should be double precision with values between 0.0 and 1.0
 ! output will only have 0.0 or 1.0
 subroutine dither_colors(input, output, nx, ny, nc)
+!f2py threadsafe
     integer, intent(in) :: nx, ny, nc
     double precision, intent(in) :: input(nx, ny, nc)
     double precision, intent(out) :: output(nx, ny, nc)
@@ -247,6 +254,7 @@ end subroutine cutoff_range
 ! =============================================================================
 
 subroutine interpolate(x, y, z, vals, points, nx, ny, nz, np, newvals)
+!f2py threadsafe
 implicit none
 INTEGER, INTENT(in) :: nx, ny, nz, np
 DOUBLE PRECISION, INTENT(in) :: vals(1:nx, 1:ny, 1:nz)
